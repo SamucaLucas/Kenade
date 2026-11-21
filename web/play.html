@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    try {
+      document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "dark";
+    } catch (e) {}
+  </script>
+  <title>Arena Celular — Kenade</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    @keyframes spinLoader {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .waiting-spinner {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 5px solid rgba(255, 255, 255, 0.22);
+      border-top-color: var(--color-amber);
+      margin: 0 auto 1.1rem;
+      animation: spinLoader 0.9s linear infinite;
+    }
+    .result-hero-card {
+      border-radius: 1.25rem;
+      padding: 1.85rem 1.35rem;
+      text-align: center;
+      color: #ffffff;
+      box-shadow: 0 16px 38px rgba(0, 0, 0, 0.35);
+      animation: kahootSplashBounce 0.42s ease-out both;
+    }
+    .result-hero-card.is-correct {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+    .result-hero-card.is-wrong {
+      background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%);
+    }
+    .obs-box {
+      margin-top: 1rem;
+      background: var(--bg-card);
+      border: 1.5px solid var(--border-subtle);
+      border-left: 6px solid var(--color-amber);
+      border-radius: 0.95rem;
+      padding: 1.1rem 1.2rem;
+      text-align: left;
+      color: var(--text-main);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      animation: kahootPopIn 0.38s ease-out 0.12s both;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ======================================================================
+       ABA LATERAL EXPANSÍVEL (<dialog class="Drawer">) PARA MODO CLARO E SAIR DA SALA
+       (Modern Web Guidance: navigation-drawer)
+       ====================================================================== -->
+  <dialog class="Drawer" id="play-drawer" aria-label="Menu da Sala Arena">
+    <div class="Drawer-scroller">
+      <nav class="Drawer-sheet">
+        <div class="drawer-header-bar">
+          <div style="display: flex; align-items: center; gap: 0.65rem;">
+            <img src="/favicon.svg" alt="Logo Kenade" width="34" height="34" style="border-radius: 8px;" />
+            <div>
+              <div style="font-weight: 900; font-size: 1.15rem;">KENADE • Arena</div>
+              <div style="font-size: 0.8rem; opacity: 0.9;" id="drawer-team-subtitle">Sala Equipe</div>
+            </div>
+          </div>
+          <button type="button" class="nav-btn drawer-close-btn" id="play-drawer-close" aria-label="Fechar menu" autofocus>✕</button>
+        </div>
+
+        <div style="padding: 1.1rem;">
+          <div class="stat-box" style="margin-bottom: 1rem;">
+            <div style="font-size: 0.75rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">
+              PIN DA SALA: <span id="drawer-pin-label" style="color: var(--color-amber);">----</span>
+            </div>
+            <div style="font-size: 1.35rem; font-weight: 900; color: var(--color-amber); margin-top: 0.25rem;" id="drawer-score-label">
+              0 pts
+            </div>
+          </div>
+
+          <ul class="drawer-menu-list" style="padding: 0;">
+            <li>
+              <button type="button" class="drawer-menu-link theme-toggle-action" id="theme-toggle-btn">
+                ☀️ Modo Claro
+              </button>
+            </li>
+            <li>
+              <a class="drawer-menu-link" href="/" style="color: var(--color-crimson);">
+                &larr; Sair da Sala (Voltar ao Início)
+              </a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+    </div>
+  </dialog>
+
+  <!-- BARRA SUPERIOR COMPACTA DE 1 LINHA (Foco total nas perguntas!) -->
+  <header class="mobile-compact-topbar">
+    <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+      <button
+        type="button"
+        class="drawer-trigger-btn"
+        id="play-drawer-open"
+        aria-label="Abrir menu lateral"
+        aria-expanded="false"
+        aria-controls="play-drawer"
+      >
+        ☰
+      </button>
+      <img src="/favicon.svg" alt="Kenade" width="28" height="28" style="border-radius: 7px; flex-shrink: 0;" />
+      <div style="min-width: 0;">
+        <div style="font-weight: 800; font-size: 0.96rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="play-team-name">
+          Carregando...
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.45rem; flex-shrink: 0;">
+      <span class="role-tag player" style="font-size: 0.74rem;">PIN <span id="play-pin-code">----</span></span>
+      <span class="role-tag admin" style="font-size: 0.8rem; padding: 0.22rem 0.6rem;" id="play-my-score">0 pts</span>
+    </div>
+  </header>
+
+  <main class="main-container" style="max-width: 680px; padding-top: 0.85rem;">
+
+    <!-- ====================================================================
+         ESTÁGIO 1: LOBBY DA SALA NO CELULAR (Mostra quem já entrou, sem perguntas!)
+         ==================================================================== -->
+    <section id="play-lobby-stage" class="card">
+      <div class="kahoot-splash-box" style="padding: 1.5rem 1.15rem; margin-bottom: 1.15rem;">
+        <div style="font-size: 2rem; margin-bottom: 0.25rem;">🎮</div>
+        <h2 style="margin: 0 0 0.35rem; font-size: 1.35rem;">Você está no Lobby da Equipe!</h2>
+        <p style="margin: 0; font-size: 0.92rem; opacity: 0.92;">
+          Aguarde o Host iniciar a partida no Monitor. Assim que começar, a pergunta aparecerá aqui!
+        </p>
+      </div>
+
+      <h3 style="margin: 0 0 0.65rem; font-size: 0.88rem; color: var(--text-muted); text-transform: uppercase;">
+        Quem já entrou na sala (<span id="play-lobby-online-count">0</span> online):
+      </h3>
+      <div id="play-lobby-members-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+
+      <div id="play-host-start-box" class="hidden" style="margin-top: 1.2rem; text-align: center;">
+        <button type="button" class="btn btn-amber" id="play-host-start-btn" style="width: 100%; font-size: 1.02rem;">
+          ▶ Você é o Host: Iniciar Partida Agora
+        </button>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         ESTÁGIO 2: ANIMAÇÃO "COMEÇOU!" & LEITURA DO ENUNCIADO (5 SEGUNDOS)
+         ==================================================================== -->
+    <section id="play-reading-stage" class="hidden">
+      <div class="kahoot-splash-box" style="padding: 1.65rem 1.2rem;">
+        <div style="display: inline-block; margin-bottom: 0.5rem;">
+          <span class="category-badge general" id="reading-category-badge">1ª Etapa: Geral</span>
+        </div>
+        <h2 style="font-size: 1.85rem; margin: 0 0 0.3rem;">🚀 COMEÇOU!</h2>
+        <div style="font-weight: 800; font-size: 0.98rem; color: var(--color-lavender-soft); margin-bottom: 0.85rem;" id="reading-round-title">
+          Rodada #1 • Prepare-se e leia o enunciado!
+        </div>
+
+        <div class="question-statement-box" id="reading-statement-text" style="text-align: left; background: rgba(15, 13, 38, 0.55); color: #fff; border-left-color: var(--color-amber); margin: 0.65rem 0;"></div>
+
+        <div style="font-weight: 800; font-size: 0.92rem; margin-top: 0.8rem;" id="reading-countdown-label">
+          Liberando as alternativas em 5s...
+        </div>
+        <div class="reading-bar-track">
+          <div class="reading-bar-fill" id="reading-progress-fill" style="width: 100%;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         ESTÁGIO 3: ESCOLHER ALTERNATIVA NO CELULAR (Foco 100% na Pergunta!)
+         ==================================================================== -->
+    <section id="play-question-stage" class="card hidden" style="padding: 1.1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem;">
+        <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          <span class="category-badge general" id="play-category-badge">1ª Etapa: Geral</span>
+          <span style="font-weight: 800; font-size: 0.86rem; color: var(--text-muted);" id="play-round-label">Rodada #1</span>
+        </div>
+        <span class="role-tag admin" id="play-timer-pill" style="font-size: 0.95rem; padding: 0.3rem 0.75rem;">45s</span>
+      </div>
+
+      <div class="question-statement-box" id="play-statement-text" style="font-size: 0.98rem; padding: 1rem; margin: 0.5rem 0 1rem;"></div>
+
+      <div class="options-grid" id="play-options-grid">
+        <button type="button" class="option-btn opt-A animate-pop-1" data-arena-opt="A">
+          <span class="option-letter">A</span>
+          <span class="option-text" id="play-opt-A"></span>
+        </button>
+        <button type="button" class="option-btn opt-B animate-pop-2" data-arena-opt="B">
+          <span class="option-letter">B</span>
+          <span class="option-text" id="play-opt-B"></span>
+        </button>
+        <button type="button" class="option-btn opt-C animate-pop-3" data-arena-opt="C">
+          <span class="option-letter">C</span>
+          <span class="option-text" id="play-opt-C"></span>
+        </button>
+        <button type="button" class="option-btn opt-D animate-pop-4" data-arena-opt="D">
+          <span class="option-letter">D</span>
+          <span class="option-text" id="play-opt-D"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         ESTÁGIO 4: TELA DE CARREGANDO / ESPERANDO OS OUTROS (Após clicar!)
+         ==================================================================== -->
+    <section id="play-waiting-stage" class="hidden">
+      <div class="kahoot-splash-box" style="padding: 2.35rem 1.35rem;">
+        <div class="waiting-spinner"></div>
+        <div class="role-tag admin" id="waiting-timer-pill" style="font-size: 0.92rem; padding: 0.28rem 0.8rem; margin-bottom: 0.8rem; display: inline-block;">
+          45s restantes
+        </div>
+        <h2 style="font-size: 1.55rem; margin: 0 0 0.4rem;" id="waiting-chosen-title">
+          Resposta Registrada!
+        </h2>
+        <p style="font-size: 1rem; margin: 0 0 1.15rem; color: var(--color-lavender-soft);">
+          Esperando os outros integrantes da equipe responderem...
+        </p>
+        <div style="display: inline-flex; gap: 1.15rem; background: rgba(15, 13, 38, 0.45); padding: 0.65rem 1.2rem; border-radius: 0.85rem; font-weight: 800; font-size: 0.92rem;">
+          <span>Responderam: <strong id="waiting-answered-count" style="color: var(--color-emerald);">0/0</strong></span>
+          <span>Faltam: <strong id="waiting-missing-count" style="color: var(--color-amber);">0</strong></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         ESTÁGIO 5: TELA DE RESULTADO FINAL DA RODADA + OBSERVAÇÃO DA PERGUNTA
+         ==================================================================== -->
+    <section id="play-result-stage" class="hidden">
+      <div id="result-hero-card" class="result-hero-card is-correct">
+        <div id="result-icon" style="font-size: 2.85rem; line-height: 1; margin-bottom: 0.4rem;">✅</div>
+        <h2 id="result-title" style="margin: 0 0 0.3rem; font-size: 1.7rem; font-weight: 900;">VOCÊ ACERTOU!</h2>
+        <div id="result-points-badge" style="display: inline-block; background: rgba(15, 13, 38, 0.45); padding: 0.4rem 1.1rem; border-radius: 999px; font-size: 1.22rem; font-weight: 900; color: var(--color-amber); margin: 0.35rem 0 0.55rem;">
+          +0 pontos
+        </div>
+        <div id="result-speed-detail" style="font-size: 0.9rem; opacity: 0.95; font-weight: 700;"></div>
+        <div id="result-answer-summary" style="margin-top: 0.65rem; font-size: 0.95rem; font-weight: 700; background: rgba(0, 0, 0, 0.22); padding: 0.6rem 0.9rem; border-radius: 0.7rem;"></div>
+      </div>
+
+      <!-- Observação / Explicação da Pergunta (Aparece sempre que existir, independente de acertar ou errar!) -->
+      <div id="result-obs-box" class="obs-box hidden">
+        <div style="font-size: 0.8rem; font-weight: 900; text-transform: uppercase; color: var(--color-amber); letter-spacing: 0.04em; margin-bottom: 0.3rem;">
+          💡 Observação / Gabarito Comentado da Questão
+        </div>
+        <div id="result-obs-text" style="font-size: 0.95rem; line-height: 1.55; white-space: pre-wrap;"></div>
+      </div>
+
+      <div id="play-host-controls-box" class="hidden" style="margin-top: 1.1rem; display: flex; flex-direction: column; gap: 0.55rem;">
+        <button type="button" class="btn btn-amber hidden" id="play-host-leaderboard-btn" style="width: 100%;">
+          Próximo: Mostrar Ranking no Monitor &rarr;
+        </button>
+        <button type="button" class="btn btn-emerald hidden" id="play-host-next-btn" style="width: 100%;">
+          Próxima Questão da Equipe &rarr;
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/common.js"></script>
+  <script>
+    let pin = null;
+    let currentUser = null;
+    let arenaState = null;
+    let ws = null;
+    let timerInterval = null;
+    let lastVibratedRound = -1;
+
+    async function joinAndLoadRoom() {
+      try {
+        const data = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/join`, { method: 'POST' });
+        arenaState = data;
+        renderMobileStage();
+      } catch (err) {
+        showToast(err.message, 'error');
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 2400);
+      }
+    }
+
+    async function refreshRoomState() {
+      try {
+        const data = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}`);
+        arenaState = data;
+        renderMobileStage();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function connectWS() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = localStorage.getItem('kenade_token') || '';
+      ws = new WebSocket(`${proto}//${window.location.host}/ws/arena/${encodeURIComponent(pin)}?role=player&token=${encodeURIComponent(token)}`);
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'arena_state') {
+            await refreshRoomState();
+          }
+        } catch {}
+      };
+    }
+
+    function hideAllStages() {
+      document.getElementById('play-lobby-stage').classList.add('hidden');
+      document.getElementById('play-reading-stage').classList.add('hidden');
+      document.getElementById('play-question-stage').classList.add('hidden');
+      document.getElementById('play-waiting-stage').classList.add('hidden');
+      document.getElementById('play-result-stage').classList.add('hidden');
+    }
+
+    function renderMobileStage() {
+      if (!arenaState || !arenaState.team) return;
+      const team = arenaState.team;
+      const q = arenaState.question;
+      const isHost = Boolean(team.is_host);
+
+      document.getElementById('play-pin-code').textContent = team.pin;
+      document.getElementById('play-team-name').textContent = team.name;
+      document.getElementById('drawer-team-subtitle').textContent = team.name;
+      document.getElementById('drawer-pin-label').textContent = team.pin;
+
+      const members = arenaState.members || [];
+      const meIndex = members.findIndex((m) => currentUser && m.user_id === currentUser.id);
+      const meMember = meIndex >= 0 ? members[meIndex] : null;
+      const rankLabel = meIndex >= 0 ? ` • ${meIndex + 1}º` : '';
+      const scoreFormatted = `${meMember ? meMember.score_in_team : 0} pts${rankLabel}`;
+      document.getElementById('play-my-score').textContent = scoreFormatted;
+      document.getElementById('drawer-score-label').textContent = scoreFormatted;
+
+      const onlineCount = members.filter((m) => m.is_online).length;
+      document.getElementById('play-lobby-online-count').textContent = `${onlineCount} de ${members.length}`;
+
+      const lobbyList = document.getElementById('play-lobby-members-list');
+      lobbyList.innerHTML = '';
+      for (const m of members) {
+        const row = document.createElement('div');
+        row.className = 'stat-box';
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="status-dot ${m.is_online ? 'online' : ''}"></span>
+            <strong>${escapeHTML(m.name)}</strong>
+            <span class="text-slate" style="font-size: 0.82rem;">(@${escapeHTML(m.username)})</span>
+          </div>
+          <span class="role-tag ${m.is_online ? 'admin' : 'player'}">
+            ${m.is_online ? 'No Lobby' : 'Offline'}
+          </span>
+        `;
+        lobbyList.appendChild(row);
+      }
+
+      document.getElementById('play-host-start-box').classList.toggle('hidden', !isHost);
+
+      if (team.round_state === 'lobby' || !q) {
+        hideAllStages();
+        document.getElementById('play-lobby-stage').classList.remove('hidden');
+        if (timerInterval) clearInterval(timerInterval);
+        return;
+      }
+
+      if (team.round_number !== lastVibratedRound && team.round_state === 'question') {
+        lastVibratedRound = team.round_number;
+        if (navigator.vibrate) {
+          try { navigator.vibrate([120, 60, 120]); } catch {}
+        }
+      }
+
+      const isGen = q.category === 'general';
+      const catText = isGen ? '1ª Etapa: Pergunta Geral' : '2ª Etapa: Pergunta Específica';
+      const catClass = `category-badge ${isGen ? 'general' : 'specific'}`;
+
+      document.getElementById('reading-category-badge').textContent = catText;
+      document.getElementById('reading-category-badge').className = catClass;
+      document.getElementById('reading-round-title').textContent = `Rodada #${team.round_number} • Leia a pergunta com atenção!`;
+      document.getElementById('reading-statement-text').textContent = q.statement;
+
+      document.getElementById('play-category-badge').textContent = catText;
+      document.getElementById('play-category-badge').className = catClass;
+      document.getElementById('play-round-label').textContent = `Rodada #${team.round_number}`;
+      document.getElementById('play-statement-text').textContent = q.statement;
+
+      document.getElementById('play-opt-A').textContent = q.option_a;
+      document.getElementById('play-opt-B').textContent = q.option_b;
+      document.getElementById('play-opt-C').textContent = q.option_c;
+      document.getElementById('play-opt-D').textContent = q.option_d;
+
+      const myAns = arenaState.my_answer;
+      const isRevealed = team.round_state === 'revealed' || team.round_state === 'leaderboard';
+
+      const answered = team.answered_count || 0;
+      const totalM = team.total_members || 0;
+      const missing = Math.max(0, totalM - answered);
+      document.getElementById('waiting-answered-count').textContent = `${answered}/${totalM}`;
+      document.getElementById('waiting-missing-count').textContent = `${missing}`;
+      if (myAns) {
+        document.getElementById('waiting-chosen-title').textContent =
+          `Alternativa ${myAns.selected_option} Enviada!`;
+      }
+
+      if (isRevealed) {
+        const hero = document.getElementById('result-hero-card');
+        const iconEl = document.getElementById('result-icon');
+        const titleEl = document.getElementById('result-title');
+        const ptsBadge = document.getElementById('result-points-badge');
+        const speedDetail = document.getElementById('result-speed-detail');
+        const summaryEl = document.getElementById('result-answer-summary');
+
+        const correctLetter = q.correct_option || '';
+        const correctText = q[`option_${correctLetter.toLowerCase()}`] || '';
+        const timeSec = myAns && myAns.response_time_ms ? (myAns.response_time_ms / 1000).toFixed(1) : null;
+
+        hero.classList.remove('is-correct', 'is-wrong');
+        if (myAns && myAns.is_correct) {
+          hero.classList.add('is-correct');
+          iconEl.textContent = '✅';
+          titleEl.textContent = 'VOCÊ ACERTOU!';
+          ptsBadge.textContent = `+${myAns.points_earned} pontos`;
+          speedDetail.textContent = timeSec
+            ? `⚡ Tempo de resposta: ${timeSec}s${meMember && meMember.current_streak >= 2 ? ` • 🔥 Sequência ${meMember.current_streak}x` : ''}`
+            : '';
+          summaryEl.textContent = `Gabarito Correto: Alternativa ${correctLetter} — ${correctText}`;
+        } else if (myAns) {
+          hero.classList.add('is-wrong');
+          iconEl.textContent = '❌';
+          titleEl.textContent = 'VOCÊ ERROU!';
+          ptsBadge.textContent = '+0 pontos';
+          speedDetail.textContent = timeSec ? `Você respondeu a Alternativa ${myAns.selected_option} em ${timeSec}s` : '';
+          summaryEl.textContent = `Gabarito Correto: Alternativa ${correctLetter} — ${correctText}`;
+        } else {
+          hero.classList.add('is-wrong');
+          iconEl.textContent = '⌛';
+          titleEl.textContent = 'TEMPO ESGOTADO!';
+          ptsBadge.textContent = '+0 pontos';
+          speedDetail.textContent = 'Você não enviou resposta a tempo nesta rodada.';
+          summaryEl.textContent = `Gabarito Correto: Alternativa ${correctLetter} — ${correctText}`;
+        }
+
+        const obsBox = document.getElementById('result-obs-box');
+        const obsText = document.getElementById('result-obs-text');
+        const hasObs = Boolean(q.explanation && q.explanation.trim() !== '');
+        obsBox.classList.toggle('hidden', !hasObs);
+        obsText.textContent = hasObs ? q.explanation : '';
+
+        document.getElementById('play-host-controls-box').classList.toggle('hidden', !isHost);
+        document.getElementById('play-host-leaderboard-btn').classList.toggle('hidden', !(isHost && team.round_state === 'revealed'));
+        document.getElementById('play-host-next-btn').classList.toggle('hidden', !(isHost && team.round_state === 'leaderboard'));
+      }
+
+      startMobileTimers(team, Boolean(myAns), isRevealed);
+    }
+
+    function startMobileTimers(team, hasAnswered, isRevealed) {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+
+      let readingRem = team.reading_remaining_sec || 0;
+      const readingTotal = team.reading_phase_total || 5;
+      let answerRem = team.remaining_sec || 0;
+      const roundState = team.round_state;
+
+      const readingStage = document.getElementById('play-reading-stage');
+      const questionStage = document.getElementById('play-question-stage');
+      const waitingStage = document.getElementById('play-waiting-stage');
+      const resultStage = document.getElementById('play-result-stage');
+
+      const readingLabel = document.getElementById('reading-countdown-label');
+      const readingFill = document.getElementById('reading-progress-fill');
+      const timerPill = document.getElementById('play-timer-pill');
+      const waitingTimerPill = document.getElementById('waiting-timer-pill');
+
+      const tick = () => {
+        hideAllStages();
+
+        if (isRevealed || roundState !== 'question') {
+          resultStage.classList.remove('hidden');
+          return;
+        }
+
+        if (hasAnswered) {
+          waitingStage.classList.remove('hidden');
+          waitingTimerPill.textContent = `${answerRem}s restantes`;
+          return;
+        }
+
+        if (readingRem > 0) {
+          readingStage.classList.remove('hidden');
+          readingLabel.textContent = `Liberando as alternativas em ${readingRem}s...`;
+          const pct = Math.max(0, Math.min(100, (readingRem / readingTotal) * 100));
+          readingFill.style.width = `${pct}%`;
+        } else {
+          questionStage.classList.remove('hidden');
+          timerPill.textContent = `${answerRem}s`;
+        }
+      };
+
+      tick();
+      if (roundState === 'question') {
+        timerInterval = setInterval(() => {
+          if (readingRem > 0) {
+            readingRem--;
+          } else if (answerRem > 0) {
+            answerRem--;
+          } else {
+            clearInterval(timerInterval);
+          }
+          tick();
+        }, 1000);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      updateThemeButtonLabel();
+      document.getElementById('theme-toggle-btn').addEventListener('click', toggleColorScheme);
+
+      setupNavigationDrawer(
+        document.getElementById('play-drawer'),
+        document.getElementById('play-drawer-open')
+      );
+
+      const params = new URLSearchParams(window.location.search);
+      pin = (params.get('pin') || '').trim();
+      if (!pin) {
+        window.location.href = '/';
+        return;
+      }
+
+      const me = await apiFetch('/api/auth/me');
+      currentUser = me.user;
+
+      document.querySelectorAll('#play-options-grid .option-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/answer`, {
+              method: 'POST',
+              body: JSON.stringify({ selected_option: btn.dataset.arenaOpt }),
+            });
+            arenaState = updated;
+            renderMobileStage();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      });
+
+      const triggerHostNext = async () => {
+        try {
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/next`, { method: 'POST' });
+          arenaState = updated;
+          renderMobileStage();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      };
+
+      const triggerHostLeaderboard = async () => {
+        try {
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/leaderboard`, { method: 'POST' });
+          arenaState = updated;
+          renderMobileStage();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      };
+
+      document.getElementById('play-host-start-btn').addEventListener('click', triggerHostNext);
+      document.getElementById('play-host-leaderboard-btn').addEventListener('click', triggerHostLeaderboard);
+      document.getElementById('play-host-next-btn').addEventListener('click', triggerHostNext);
+
+      await joinAndLoadRoom();
+      connectWS();
+    });
+  </script>
+</body>
+</html>

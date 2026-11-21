@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    try {
+      document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "dark";
+    } catch (e) {}
+  </script>
+  <title>Painel &amp; Equipes — Kenade</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a class="brand-logo" href="/">
+        <img src="/favicon.svg" alt="Logo Kenade" class="brand-logo-icon" width="36" height="36" />
+        <span>KENADE</span>
+        <span class="brand-badge">ENADE Quiz</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Navegação principal">
+        <a class="nav-btn" data-nav="dashboard" href="/">Início &amp; Salas</a>
+        <a class="nav-btn" data-nav="solo" href="/solo">Estudo Solo (Celular)</a>
+        <a class="nav-btn" data-nav="ranking" href="/ranking">Rankings</a>
+        <!-- Oculto por padrão: só aparece para Admin -->
+        <a class="nav-btn hidden admin-only" data-nav="questions" href="/questions">Banco de Questões</a>
+        <button type="button" class="nav-btn" id="theme-toggle-btn">☀️ Modo Claro</button>
+      </nav>
+
+      <div class="user-pill">
+        <span id="header-user-name">...</span>
+        <span class="role-tag" id="header-user-role"></span>
+        <button type="button" class="nav-btn" id="logout-btn" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">Sair</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <!-- Resumo de Progresso Solo -->
+    <div class="card">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem;">
+        <div>
+          <h1 class="card-title" id="dash-welcome-title">Carregando...</h1>
+          <p class="text-slate" style="margin: 0;">
+            Ordem oficial do ENADE: <strong>1º Formação Geral</strong> &rarr; <strong>2º Componente Específico</strong> (sem repetir questões já acertadas no ciclo).
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+          <a class="btn btn-primary" href="/solo">📱 Estudar Sozinho (Modo Solo)</a>
+          <button type="button" class="btn btn-purple" id="open-create-team-btn">+ Criar Nova Sala / Equipe</button>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.88rem; font-weight: 700;">
+          <span>Progresso do Seu Ciclo Atual (Modo Solo)</span>
+          <span id="dash-progress-label">0 / 0 questões dominadas no ciclo</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="dash-progress-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="stat-pills">
+        <div class="stat-box">
+          <div class="stat-value" id="stat-general-cycle">0 / 0</div>
+          <div class="stat-label">1ª Etapa: Gerais (Ciclo)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="stat-specific-cycle">0 / 0</div>
+          <div class="stat-label">2ª Etapa: Específicas (Ciclo)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="stat-unique-ever" style="color: var(--color-cyan);">0</div>
+          <div class="stat-label">Acertos Únicos (Ranking)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="stat-cycles-count" style="color: var(--color-amber);">0</div>
+          <div class="stat-label">Ciclos Zerados (Replays)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Acesso Rápido por PIN ou Escanear QR Code -->
+    <div class="dashboard-grid">
+      <div class="card">
+        <h2 class="card-title">Entrar na Sala da Sua Equipe (Celular)</h2>
+        <p class="text-slate" style="font-size: 0.9rem;">
+          Digite o PIN da sala em que seu <strong>@usuário</strong> faz parte ou escaneie o QR Code projetado no monitor.
+        </p>
+        <form id="quick-pin-form" style="display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap;">
+          <label for="quick-pin-input" class="hidden">PIN da Sala</label>
+          <input
+            type="text"
+            id="quick-pin-input"
+            class="form-input"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="6"
+            placeholder="PIN (ex: 4829)"
+            required
+            style="font-weight: 800; font-size: 1.15rem; letter-spacing: 0.1em; flex: 1; min-width: 140px;"
+          />
+          <button type="submit" class="btn btn-primary">Ir para o Lobby</button>
+          <button type="button" class="btn btn-amber" id="open-qr-scanner-btn">📷 Escanear QR Code</button>
+        </form>
+      </div>
+
+      <!-- Card de Rankings (Para todos) + Botão de Banco de Questões (Exclusivo Admin) -->
+      <div class="card">
+        <h2 class="card-title" id="second-card-title">Rankings Globais (Jogadores &amp; Equipes)</h2>
+        <p class="text-slate" style="font-size: 0.9rem;" id="second-card-desc">
+          Acompanhe sua classificação por Acertos Únicos no Ranking Individual e a posição da sua equipe no Ranking Exclusivo de Equipes.
+        </p>
+        <div style="margin-top: 1rem; display: flex; gap: 0.65rem; flex-wrap: wrap;">
+          <a class="btn btn-purple" href="/ranking">🏆 Ver Rankings</a>
+          <a class="btn btn-emerald hidden admin-only" href="/questions">⚙️ Gerenciar Banco de Questões (Admin)</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lista de Salas / Equipes que o usuário faz parte -->
+    <div style="margin-top: 1.75rem;">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+        <div>
+          <h2 class="card-title" style="margin: 0;">Suas Salas / Equipes Arena</h2>
+          <p class="text-slate" style="margin: 0; font-size: 0.88rem;">
+            Apenas as equipes em que você foi incluído aparecem abaixo. O Monitor abre em uma nova aba limpa com opção de Tela Cheia.
+          </p>
+        </div>
+        <button type="button" class="btn btn-purple" id="open-create-team-btn-2">+ Nova Sala / Equipe</button>
+      </div>
+
+      <div id="my-teams-grid" class="dashboard-grid"></div>
+    </div>
+  </main>
+
+  <!-- ======================================================================
+       MODAL <dialog>: ESCANEAR QR CODE PELA CÂMERA DO CELULAR
+       ====================================================================== -->
+  <dialog id="qr-scanner-dialog" aria-labelledby="qr-scanner-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="qr-scanner-title" style="margin: 0; font-size: 1.2rem;">📷 Escanear QR Code da Sala</h2>
+      <button type="button" class="nav-btn" id="close-qr-scanner-btn" aria-label="Fechar leitor">✕</button>
+    </div>
+    <div class="dialog-body" style="text-align: center;">
+      <p class="text-slate" style="margin-top: 0; font-size: 0.92rem;">
+        Aponte a câmera do celular para o QR Code projetado no Monitor da sala:
+      </p>
+      <div style="position: relative; max-width: 380px; margin: 0 auto; border-radius: 1rem; overflow: hidden; border: 3px solid var(--color-amber); background: #000;">
+        <video id="qr-video" playsinline muted style="width: 100%; display: block; aspect-ratio: 1 / 1; object-fit: cover;"></video>
+        <canvas id="qr-canvas" class="hidden"></canvas>
+      </div>
+      <p id="qr-scanner-status" style="font-size: 0.88rem; font-weight: 700; margin: 0.85rem 0 0; color: var(--color-amber);">
+        Iniciando câmera...
+      </p>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-outline" id="cancel-qr-scanner-btn">Fechar Câmera</button>
+    </div>
+  </dialog>
+
+  <!-- ======================================================================
+       MODAL <dialog>: CRIAR NOVA SALA / EQUIPE COM COMBOBOX @USUARIO
+       ====================================================================== -->
+  <dialog id="team-dialog" aria-labelledby="team-dialog-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="team-dialog-title" style="margin: 0; font-size: 1.2rem;">Criar Nova Sala / Equipe Arena</h2>
+      <button type="button" class="nav-btn" id="close-team-dialog-btn" aria-label="Fechar janela">✕</button>
+    </div>
+    <form id="team-form">
+      <div class="dialog-body">
+        <p class="text-slate" style="margin-top: 0; font-size: 0.9rem;">
+          A equipe terá seu próprio progresso começando do zero e participará do <strong>Ranking Exclusivo de Equipes</strong>. Somente você (criador da sala) poderá incluir ou remover membros.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="team-name-input">Nome da Equipe / Sala *</label>
+          <input
+            type="text"
+            id="team-name-input"
+            class="form-input"
+            required
+            placeholder="ex: Tropa do ENADE"
+          />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="member-search-input">Adicionar Integrantes Pesquisando pelo @usuário</label>
+          <div class="combobox-container">
+            <input
+              type="text"
+              id="member-search-input"
+              class="form-input"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Digite o @usuário do amigo para pesquisar e adicionar..."
+            />
+            <div id="member-search-dropdown" class="combobox-dropdown hidden"></div>
+          </div>
+
+          <div style="margin-top: 0.75rem; font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">
+            Membros Selecionados para a Equipe:
+          </div>
+          <div id="selected-members-chips" class="selected-members-chips"></div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <button type="button" class="btn btn-outline" id="cancel-team-dialog-btn">Cancelar</button>
+        <button type="submit" class="btn btn-purple">Criar Equipe</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ======================================================================
+       MODAL <dialog>: GERENCIAR MEMBROS DA EQUIPE (EXCLUSIVO HOST CRIADOR)
+       ====================================================================== -->
+  <dialog id="manage-members-dialog" aria-labelledby="manage-members-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="manage-members-title" style="margin: 0; font-size: 1.2rem;">Gerenciar Membros da Equipe</h2>
+      <button type="button" class="nav-btn" id="close-manage-members-btn" aria-label="Fechar janela">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="text-slate" style="margin-top: 0; font-size: 0.9rem;">
+        Pesquise pelo <strong>@usuário</strong> no combobox abaixo para incluir novos amigos na sala, ou remova integrantes existentes.
+      </p>
+
+      <div class="form-group">
+        <label class="form-label" for="manage-member-search">Pesquisar @usuário para adicionar à equipe</label>
+        <div class="combobox-container">
+          <input
+            type="text"
+            id="manage-member-search"
+            class="form-input"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Digite @usuário..."
+          />
+          <div id="manage-member-dropdown" class="combobox-dropdown hidden"></div>
+        </div>
+      </div>
+
+      <div id="current-team-members-list" style="display: flex; flex-direction: column; gap: 0.55rem; margin-top: 1rem;"></div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-primary" id="done-manage-members-btn">Concluído</button>
+    </div>
+  </dialog>
+
+  <script src="/common.js"></script>
+  <script>
+    let currentUser = null;
+    let selectedNewTeamMembers = new Map();
+    let activeManageTeam = null;
+    let qrStream = null;
+    let qrScanRaf = null;
+
+    function extractPinFromQR(rawText) {
+      const text = String(rawText || '').trim();
+      if (/^\d{4,6}$/.test(text)) {
+        return text;
+      }
+      try {
+        const url = new URL(text);
+        const pinParam = url.searchParams.get('pin');
+        if (pinParam) return pinParam.trim();
+      } catch {}
+      const match = text.match(/[?&]pin=(\d{4,6})/i) || text.match(/\b(\d{4})\b/);
+      return match ? match[1] : null;
+    }
+
+    async function loadJsQRIfNeeded() {
+      if (window.jsQR) return true;
+      return new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+        s.onload = () => resolve(true);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
+    }
+
+    async function startQRScanner() {
+      const dlg = document.getElementById('qr-scanner-dialog');
+      const video = document.getElementById('qr-video');
+      const canvas = document.getElementById('qr-canvas');
+      const statusEl = document.getElementById('qr-scanner-status');
+      dlg.showModal();
+      statusEl.textContent = 'Solicitando acesso à câmera...';
+
+      try {
+        qrStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+        video.srcObject = qrStream;
+        await video.play();
+        statusEl.textContent = 'Procurando QR Code da Sala...';
+
+        let detector = null;
+        if ('BarcodeDetector' in window) {
+          try {
+            detector = new BarcodeDetector({ formats: ['qr_code'] });
+          } catch {}
+        }
+        if (!detector) {
+          await loadJsQRIfNeeded();
+        }
+
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        const scanFrame = async () => {
+          if (!qrStream) return;
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            let detectedValue = null;
+            if (detector) {
+              try {
+                const codes = await detector.detect(video);
+                if (codes && codes.length > 0) {
+                  detectedValue = codes[0].rawValue;
+                }
+              } catch {}
+            } else if (window.jsQR) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = window.jsQR(imgData.data, imgData.width, imgData.height);
+              if (code && code.data) {
+                detectedValue = code.data;
+              }
+            }
+
+            const pinFound = extractPinFromQR(detectedValue);
+            if (pinFound) {
+              statusEl.textContent = `QR Code lido! Conectando à sala ${pinFound}...`;
+              stopQRScanner();
+              dlg.close();
+              joinRoomByPin(pinFound);
+              return;
+            }
+          }
+          qrScanRaf = requestAnimationFrame(scanFrame);
+        };
+
+        qrScanRaf = requestAnimationFrame(scanFrame);
+      } catch (err) {
+        statusEl.textContent = 'Não foi possível acessar a câmera. Verifique a permissão do navegador ou digite o PIN.';
+      }
+    }
+
+    function stopQRScanner() {
+      if (qrScanRaf) {
+        cancelAnimationFrame(qrScanRaf);
+        qrScanRaf = null;
+      }
+      if (qrStream) {
+        qrStream.getTracks().forEach((t) => t.stop());
+        qrStream = null;
+      }
+      const video = document.getElementById('qr-video');
+      if (video) video.srcObject = null;
+    }
+
+    async function joinRoomByPin(pin) {
+      try {
+        await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/join`, { method: 'POST' });
+        window.location.href = `/play?pin=${encodeURIComponent(pin)}`;
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function renderSelectedNewTeamChips() {
+      const container = document.getElementById('selected-members-chips');
+      container.innerHTML = '';
+
+      if (currentUser) {
+        const hostChip = document.createElement('span');
+        hostChip.className = 'user-chip';
+        hostChip.innerHTML = `👑 <strong>@${escapeHTML(currentUser.username)}</strong> (Você - Criador)`;
+        container.appendChild(hostChip);
+      }
+
+      for (const [uid, u] of selectedNewTeamMembers.entries()) {
+        const chip = document.createElement('span');
+        chip.className = 'user-chip';
+        chip.innerHTML = `
+          <span>@${escapeHTML(u.username)} (${escapeHTML(u.name)})</span>
+          <button type="button" title="Remover" data-rm-uid="${uid}">✕</button>
+        `;
+        chip.querySelector('button').addEventListener('click', () => {
+          selectedNewTeamMembers.delete(uid);
+          renderSelectedNewTeamChips();
+        });
+        container.appendChild(chip);
+      }
+    }
+
+    async function loadMyTeams() {
+      try {
+        const data = await apiFetch('/api/arena/teams');
+        const grid = document.getElementById('my-teams-grid');
+        grid.innerHTML = '';
+
+        const teams = data.teams || [];
+        if (teams.length === 0) {
+          grid.innerHTML = `
+            <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 2.25rem;">
+              <h3 style="margin-top: 0;">Você ainda não participa de nenhuma Equipe Arena</h3>
+              <p class="text-slate">Crie uma nova sala e adicione seus amigos pelo @usuário, ou peça para o criador da sala adicionar você.</p>
+            </div>
+          `;
+          return;
+        }
+
+        for (const t of teams) {
+          const st = t.stats || {};
+          const membersList = (t.members || [])
+            .map((m) => (m.user ? `@${m.user.username}` : ''))
+            .filter(Boolean)
+            .join(', ');
+
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
+              <div>
+                <span class="role-tag admin" style="font-size: 0.82rem;">PIN: ${escapeHTML(t.pin)}</span>
+                ${t.is_host ? '<span class="role-tag player" style="margin-left: 0.35rem;">CRIADOR</span>' : ''}
+                <h3 class="card-title" style="margin-top: 0.45rem;">${escapeHTML(t.name)}</h3>
+              </div>
+              <span class="role-tag player">Ciclo #${t.cycle_count}</span>
+            </div>
+
+            <p class="text-slate" style="font-size: 0.86rem; margin: 0.4rem 0;">
+              <strong>Progresso da Equipe:</strong> ${st.mastered_in_cycle || 0} / ${st.total_questions || 0} questões
+              (1º Gerais: ${st.mastered_general_cycle || 0}/${st.total_general || 0} • 2º Específicas: ${st.mastered_specific_cycle || 0}/${st.total_specific || 0})
+            </p>
+            <p class="text-slate" style="font-size: 0.82rem; margin: 0 0 1.1rem;">
+              <strong>Membros (${(t.members || []).length}):</strong> ${escapeHTML(membersList)}
+            </p>
+
+            <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+              <a class="btn btn-primary" href="/monitor?pin=${encodeURIComponent(t.pin)}" target="_blank" rel="noopener" style="flex: 1;">
+                🖥️ Abrir Monitor (Nova Aba)
+              </a>
+              <a class="btn btn-purple" href="/play?pin=${encodeURIComponent(t.pin)}" style="flex: 1;">
+                📱 Entrar pelo Celular
+              </a>
+              ${
+                t.is_host
+                  ? `<button type="button" class="btn btn-outline" data-manage-pin="${escapeHTML(t.pin)}" title="Adicionar ou remover membros pelo @usuário">👥 Membros</button>`
+                  : ''
+              }
+            </div>
+          `;
+          grid.appendChild(card);
+        }
+
+        grid.querySelectorAll('[data-manage-pin]').forEach((btn) => {
+          btn.addEventListener('click', () => openManageMembersModal(btn.dataset.managePin));
+        });
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    async function openManageMembersModal(pin) {
+      try {
+        const stateData = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}`);
+        activeManageTeam = stateData;
+        renderManageMembersList();
+        document.getElementById('manage-members-dialog').showModal();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function renderManageMembersList() {
+      if (!activeManageTeam) return;
+      const list = document.getElementById('current-team-members-list');
+      list.innerHTML = '';
+
+      for (const m of activeManageTeam.members || []) {
+        const row = document.createElement('div');
+        row.className = 'stat-box';
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.innerHTML = `
+          <div>
+            <strong>@${escapeHTML(m.username)}</strong>
+            <span class="text-slate" style="margin-left: 0.4rem;">(${escapeHTML(m.name)})</span>
+            ${m.is_host ? '<span class="role-tag admin" style="margin-left: 0.4rem;">Criador</span>' : ''}
+          </div>
+          ${
+            !m.is_host
+              ? `<button type="button" class="btn btn-crimson" data-rm-member="${m.user_id}" style="padding: 0.32rem 0.75rem; font-size: 0.8rem;">Remover</button>`
+              : ''
+          }
+        `;
+        list.appendChild(row);
+      }
+
+      list.querySelectorAll('[data-rm-member]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            const updated = await apiFetch(`/api/arena/teams/${activeManageTeam.team.pin}/members`, {
+              method: 'POST',
+              body: JSON.stringify({
+                user_id: Number(btn.dataset.rmMember),
+                action: 'remove',
+              }),
+            });
+            activeManageTeam = updated;
+            renderManageMembersList();
+            loadMyTeams();
+            showToast('Membro removido da equipe', 'info');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const me = await initAuthenticatedPage('dashboard');
+      currentUser = me.user;
+      const st = me.stats;
+
+      document.getElementById('dash-welcome-title').textContent = `Olá, ${currentUser.name} (@${currentUser.username})!`;
+      const pct = st.total_questions > 0 ? Math.round((st.mastered_in_cycle / st.total_questions) * 100) : 0;
+      document.getElementById('dash-progress-label').textContent =
+        `${st.mastered_in_cycle} / ${st.total_questions} questões dominadas no ciclo (${pct}%)`;
+      document.getElementById('dash-progress-bar').style.width = `${pct}%`;
+
+      document.getElementById('stat-general-cycle').textContent = `${st.mastered_general_cycle} / ${st.total_general}`;
+      document.getElementById('stat-specific-cycle').textContent = `${st.mastered_specific_cycle} / ${st.total_specific}`;
+      document.getElementById('stat-unique-ever').textContent = `${st.unique_mastered_ever} / ${st.total_questions}`;
+      document.getElementById('stat-cycles-count').textContent = `${st.cycle_count}`;
+
+      loadMyTeams();
+
+      createUserSearchCombobox({
+        inputEl: document.getElementById('member-search-input'),
+        dropdownEl: document.getElementById('member-search-dropdown'),
+        filterFn: (u) => u.id !== currentUser.id && !selectedNewTeamMembers.has(u.id),
+        onSelectUser: (u) => {
+          selectedNewTeamMembers.set(u.id, u);
+          renderSelectedNewTeamChips();
+        },
+      });
+
+      createUserSearchCombobox({
+        inputEl: document.getElementById('manage-member-search'),
+        dropdownEl: document.getElementById('manage-member-dropdown'),
+        filterFn: (u) => {
+          if (!activeManageTeam) return true;
+          return !(activeManageTeam.members || []).some((m) => m.user_id === u.id);
+        },
+        onSelectUser: async (u) => {
+          if (!activeManageTeam) return;
+          try {
+            const updated = await apiFetch(`/api/arena/teams/${activeManageTeam.team.pin}/members`, {
+              method: 'POST',
+              body: JSON.stringify({ user_id: u.id, action: 'add' }),
+            });
+            activeManageTeam = updated;
+            renderManageMembersList();
+            loadMyTeams();
+            showToast(`@${u.username} adicionado à equipe!`, 'success');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      });
+
+      const openCreateModal = () => {
+        selectedNewTeamMembers.clear();
+        document.getElementById('team-name-input').value = '';
+        renderSelectedNewTeamChips();
+        document.getElementById('team-dialog').showModal();
+      };
+
+      document.getElementById('open-create-team-btn').addEventListener('click', openCreateModal);
+      document.getElementById('open-create-team-btn-2').addEventListener('click', openCreateModal);
+      document.getElementById('close-team-dialog-btn').addEventListener('click', () =>
+        document.getElementById('team-dialog').close()
+      );
+      document.getElementById('cancel-team-dialog-btn').addEventListener('click', () =>
+        document.getElementById('team-dialog').close()
+      );
+
+      document.getElementById('close-manage-members-btn').addEventListener('click', () =>
+        document.getElementById('manage-members-dialog').close()
+      );
+      document.getElementById('done-manage-members-btn').addEventListener('click', () =>
+        document.getElementById('manage-members-dialog').close()
+      );
+
+      document.getElementById('team-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('team-name-input').value.trim();
+        const memberIds = Array.from(selectedNewTeamMembers.keys());
+        try {
+          const created = await apiFetch('/api/arena/teams', {
+            method: 'POST',
+            body: JSON.stringify({ name, member_ids: memberIds }),
+          });
+          document.getElementById('team-dialog').close();
+          showToast(`Equipe "${created.team.name}" criada com PIN ${created.team.pin}!`, 'success');
+          loadMyTeams();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      document.getElementById('quick-pin-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const pin = document.getElementById('quick-pin-input').value.trim();
+        if (pin) joinRoomByPin(pin);
+      });
+
+      // Eventos do Leitor de QR Code
+      document.getElementById('open-qr-scanner-btn').addEventListener('click', startQRScanner);
+      document.getElementById('close-qr-scanner-btn').addEventListener('click', () => {
+        stopQRScanner();
+        document.getElementById('qr-scanner-dialog').close();
+      });
+      document.getElementById('cancel-qr-scanner-btn').addEventListener('click', () => {
+        stopQRScanner();
+        document.getElementById('qr-scanner-dialog').close();
+      });
+      document.getElementById('qr-scanner-dialog').addEventListener('close', stopQRScanner);
+    });
+  </script>
+</body>
+</html>

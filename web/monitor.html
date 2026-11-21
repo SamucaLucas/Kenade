@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>Monitor Arena — Kenade</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="monitor-body">
+
+  <!-- Barra Superior Limpa do Monitor / Projetor -->
+  <header class="monitor-topbar">
+    <div style="display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;">
+      <img src="/favicon.svg" alt="Logo Kenade" width="42" height="42" style="border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.35);" />
+      <div>
+        <div style="font-size: 0.72rem; color: var(--color-lavender-soft); font-weight: 800; text-transform: uppercase;">
+          MODO MONITOR • EQUIPE ARENA
+        </div>
+        <h1 style="margin: 0; font-size: 1.4rem; font-weight: 900;" id="monitor-team-name">Carregando Sala...</h1>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.1); padding: 0.35rem 0.85rem; border-radius: 0.65rem; font-size: 0.82rem; font-weight: 700;" id="monitor-team-progress">
+        Progresso da Equipe: 0 / 0
+      </div>
+
+      <!-- Aviso compacto de Replay na própria barra superior para não empurrar o layout -->
+      <span id="monitor-replay-banner" class="role-tag admin hidden" style="font-size: 0.78rem; padding: 0.3rem 0.75rem;">
+        🏆 Novo Ciclo de Replay Iniciado!
+      </span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      <div class="pin-display-box">
+        <span>PIN:</span>
+        <span id="monitor-pin-code">----</span>
+      </div>
+
+      <!-- QR Code Clicável para Expandir na Tela -->
+      <div style="display: flex; align-items: center; gap: 0.45rem; cursor: zoom-in;" id="qr-expand-trigger" title="Clique para ampliar o QR Code na tela">
+        <img id="monitor-qr-img" class="qr-clickable-thumb" alt="QR Code da Sala (Clique para expandir)" width="52" height="52" />
+        <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-amber); max-width: 56px; line-height: 1.15;">🔍 Ampliar QR</span>
+      </div>
+
+      <button type="button" class="btn btn-outline hidden" id="monitor-manage-members-btn" style="background: rgba(255,255,255,0.12); color: #fff; padding: 0.5rem 0.9rem;">
+        👥 Membros (@)
+      </button>
+      <button type="button" class="btn btn-purple" id="fullscreen-toggle-btn" title="Alternar Tela Cheia igual no Kahoot" style="padding: 0.5rem 0.95rem;">
+        ⛶ Tela Cheia
+      </button>
+    </div>
+  </header>
+
+  <main class="monitor-stage">
+
+    <!-- ====================================================================
+         1. ESTADO LOBBY NO MONITOR (Mostra quem entrou e aguarda início)
+         ==================================================================== -->
+    <section id="monitor-lobby-panel" style="flex: 1; min-height: 0; overflow-y: auto; padding: 0.75rem 0;">
+      <div class="kahoot-splash-box" style="max-width: 820px; margin: 0 auto 1.5rem; padding: 1.75rem 1.5rem;">
+        <div style="font-size: 0.88rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9;">
+          LOBBY DA EQUIPE • CONECTE PELO CELULAR
+        </div>
+        <h2 style="font-size: 2.15rem; margin: 0.35rem 0 0.65rem;">
+          PIN da Sala: <span id="monitor-lobby-pin" style="color: var(--color-amber);">----</span>
+        </h2>
+        <p style="font-size: 1rem; max-width: 620px; margin: 0 auto 1.35rem; opacity: 0.95;">
+          Clique no QR Code para ampliá-lo na tela ou digite o PIN no celular. Quando todos estiverem prontos, inicie a partida!
+        </p>
+
+        <div id="host-lobby-controls" class="hidden" style="display: flex; justify-content: center; gap: 0.85rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-amber" id="monitor-start-round-btn" style="font-size: 1.15rem; padding: 0.85rem 2rem;">
+            ▶ Iniciar Partida [Espaço]
+          </button>
+          <button type="button" class="btn btn-outline" id="monitor-Lobby-qr-btn" style="background: rgba(255,255,255,0.16); color: #fff;">
+            🔍 Expandir QR Code
+          </button>
+          <button type="button" class="btn btn-outline" id="monitor-reset-team-btn" style="background: rgba(255,255,255,0.12); color: #fff;">
+            Zerar Progresso da Equipe
+          </button>
+        </div>
+        <p id="non-host-lobby-msg" class="hidden" style="font-weight: 700; color: var(--color-amber);">
+          Aguardando o criador da sala iniciar a partida...
+        </p>
+      </div>
+
+      <div style="max-width: 1100px; margin: 0 auto;">
+        <h3 style="margin: 0; font-size: 0.92rem; color: var(--color-lavender-soft); text-transform: uppercase;">
+          Integrantes da Equipe Conectados no Lobby
+        </h3>
+        <div class="member-chips-grid" id="monitor-lobby-members-grid"></div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         2. ESTADO PERGUNTA ATIVA (Sem rolagem na página; rolagem só no texto se for grande!)
+         ==================================================================== -->
+    <section id="monitor-question-panel" class="monitor-question-layout hidden">
+      <!-- TOPO: Categoria, Rodada, Quantos Responderam / Quantos Faltam, Timer e Pergunta Separada -->
+      <div style="flex-shrink: 0;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.85rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <span class="category-badge general" id="monitor-category-badge" style="font-size: 0.92rem; padding: 0.38rem 0.95rem;">
+              1ª Etapa: Pergunta Geral
+            </span>
+            <span style="font-weight: 900; font-size: 1.2rem; color: var(--color-lavender-soft);" id="monitor-round-label">
+              Rodada #1
+            </span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <button type="button" class="btn btn-amber hidden" id="monitor-reveal-now-btn" style="padding: 0.55rem 1rem; font-size: 0.88rem;">
+              Revelar Gabarito Agora
+            </button>
+            <button type="button" class="btn btn-emerald hidden" id="monitor-reopen-chart-btn" style="padding: 0.55rem 1rem; font-size: 0.88rem;">
+              📊 Ver Gráfico &amp; Avançar [Espaço]
+            </button>
+
+            <!-- Mostra quantos responderam e quantos faltam -->
+            <div style="display: flex; gap: 0.85rem; background: rgba(15, 13, 38, 0.65); padding: 0.45rem 1rem; border-radius: 0.85rem; border: 1.5px solid rgba(221, 214, 254, 0.22);">
+              <div style="text-align: center;">
+                <div style="font-size: 0.7rem; color: var(--color-lavender-soft); text-transform: uppercase; font-weight: 700;">Responderam</div>
+                <div style="font-size: 1.35rem; font-weight: 900; color: var(--color-emerald);" id="monitor-answered-num">0</div>
+              </div>
+              <div style="width: 1px; background: rgba(255,255,255,0.2);"></div>
+              <div style="text-align: center;">
+                <div style="font-size: 0.7rem; color: var(--color-lavender-soft); text-transform: uppercase; font-weight: 700;">Faltam</div>
+                <div style="font-size: 1.35rem; font-weight: 900; color: var(--color-amber);" id="monitor-missing-num">0</div>
+              </div>
+            </div>
+
+            <div class="timer-badge" id="monitor-timer-circle">45s</div>
+          </div>
+        </div>
+
+        <!-- PERGUNTA SEPARADA NO TOPO (Com rolagem interna se o enunciado for muito grande) -->
+        <div class="monitor-statement" id="monitor-statement-text"></div>
+      </div>
+
+      <!-- MEIO: Fase de Leitura Inicial (5s) -->
+      <div id="monitor-reading-banner" class="kahoot-splash-box hidden" style="max-width: 760px; width: 100%; margin: auto; padding: 1.35rem 1.75rem;">
+        <div style="font-size: 1.4rem; font-weight: 900;" id="monitor-reading-title">
+          🚀 COMEÇOU! Leia a pergunta com atenção...
+        </div>
+        <div class="reading-bar-track">
+          <div class="reading-bar-fill" id="monitor-reading-bar" style="width: 100%;"></div>
+        </div>
+      </div>
+
+      <!-- RODAPÉ: RESPOSTAS EM TAMANHO MAIOR (Grid 2x2 Colorido, sem cortar a tela!) -->
+      <div class="monitor-bottom-options-grid hidden" id="monitor-options-grid">
+        <div class="monitor-option-card opt-A animate-pop-1" id="monitor-card-A">
+          <span class="option-letter">A</span>
+          <span class="option-text" id="monitor-opt-A"></span>
+        </div>
+        <div class="monitor-option-card opt-B animate-pop-2" id="monitor-card-B">
+          <span class="option-letter">B</span>
+          <span class="option-text" id="monitor-opt-B"></span>
+        </div>
+        <div class="monitor-option-card opt-C animate-pop-3" id="monitor-card-C">
+          <span class="option-letter">C</span>
+          <span class="option-text" id="monitor-opt-C"></span>
+        </div>
+        <div class="monitor-option-card opt-D animate-pop-4" id="monitor-card-D">
+          <span class="option-letter">D</span>
+          <span class="option-text" id="monitor-opt-D"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         OVERLAY POR CIMA DE TUDO: GRÁFICO DE BARRAS COM FUNDO ESCURECIDO
+         ==================================================================== -->
+    <div id="monitor-chart-overlay" class="monitor-chart-backdrop hidden">
+      <div class="kahoot-chart-wrapper">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
+          <div>
+            <div style="font-size: 0.78rem; font-weight: 800; color: var(--color-amber); text-transform: uppercase;">
+              RESULTADO DA RODADA • DISTRIBUIÇÃO DE VOTOS
+            </div>
+            <h2 style="margin: 0.2rem 0 0; font-size: 1.5rem;" id="chart-correct-heading">Gabarito Oficial</h2>
+          </div>
+          <button type="button" class="btn btn-outline" id="peek-question-behind-btn" style="padding: 0.45rem 0.9rem; font-size: 0.85rem;">
+            👁️ Ver Pergunta no Fundo
+          </button>
+        </div>
+
+        <!-- Gráfico de Barras Vertical -->
+        <div class="kahoot-bars-grid">
+          <div class="kahoot-bar-col">
+            <div class="kahoot-bar-count" id="chart-count-A">0</div>
+            <div class="kahoot-bar-fill bar-A" id="chart-bar-A" style="height: 14px;"></div>
+          </div>
+          <div class="kahoot-bar-col">
+            <div class="kahoot-bar-count" id="chart-count-B">0</div>
+            <div class="kahoot-bar-fill bar-B" id="chart-bar-B" style="height: 14px;"></div>
+          </div>
+          <div class="kahoot-bar-col">
+            <div class="kahoot-bar-count" id="chart-count-C">0</div>
+            <div class="kahoot-bar-fill bar-C" id="chart-bar-C" style="height: 14px;"></div>
+          </div>
+          <div class="kahoot-bar-col">
+            <div class="kahoot-bar-count" id="chart-count-D">0</div>
+            <div class="kahoot-bar-fill bar-D" id="chart-bar-D" style="height: 14px;"></div>
+          </div>
+        </div>
+
+        <div class="kahoot-bar-labels">
+          <div style="color: var(--color-blue);">▲ Opção A</div>
+          <div style="color: var(--color-purple);">◆ Opção B</div>
+          <div style="color: var(--color-cyan);">● Opção C</div>
+          <div style="color: var(--color-magenta);">■ Opção D</div>
+        </div>
+
+        <!-- Observação / Gabarito Comentado (com rolagem interna se for grande) -->
+        <div id="monitor-explanation-box" class="hidden" style="margin-top: 1.1rem; background: rgba(255,255,255,0.08); border-left: 5px solid var(--color-amber); border-radius: 0.75rem; padding: 0.85rem 1.1rem; max-height: 18dvh; overflow-y: auto;">
+          <div style="font-size: 0.76rem; font-weight: 900; color: var(--color-amber); text-transform: uppercase; margin-bottom: 0.25rem;">
+            💡 Observação / Gabarito Comentado
+          </div>
+          <div id="monitor-explanation-text" style="font-size: 0.96rem; color: #ffffff; white-space: pre-wrap;"></div>
+        </div>
+
+        <div id="host-chart-controls" class="hidden" style="margin-top: 1.35rem; display: flex; justify-content: flex-end;">
+          <button type="button" class="btn btn-emerald" id="monitor-go-leaderboard-btn" style="font-size: 1.12rem; padding: 0.85rem 1.8rem;">
+            Próximo: Ver Ranking da Equipe [Espaço] &rarr;
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         3. ESTADO RANKING DA EQUIPE (TOP 5) — Entre o Gabarito e a Próxima Pergunta
+         ==================================================================== -->
+    <section id="monitor-leaderboard-panel" class="hidden" style="flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center;">
+      <div class="top5-leaderboard-box" style="max-height: 84dvh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.35rem;">
+          <div>
+            <div style="font-size: 0.82rem; font-weight: 800; color: var(--color-amber); text-transform: uppercase;">
+              PLACAR DA RODADA • TOP 5 DA EQUIPE
+            </div>
+            <h2 style="margin: 0.2rem 0 0; font-size: 1.9rem;" id="leaderboard-team-title">Ranking da Equipe</h2>
+          </div>
+
+          <div id="host-leaderboard-controls" class="hidden">
+            <button type="button" class="btn btn-amber" id="monitor-next-question-btn" style="font-size: 1.12rem; padding: 0.85rem 1.75rem;">
+              Próxima Pergunta [Espaço] &rarr;
+            </button>
+          </div>
+        </div>
+
+        <div id="top5-members-container"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======================================================================
+       MODAL <dialog>: QR CODE EXPANDIDO EM TELA GRANDE
+       ====================================================================== -->
+  <dialog id="qr-zoom-dialog" aria-labelledby="qr-zoom-title" closedby="any" style="max-width: 520px; text-align: center;">
+    <div class="dialog-header">
+      <h2 id="qr-zoom-title" style="margin: 0; font-size: 1.25rem;">Escaneie para Entrar na Sala</h2>
+      <button type="button" class="nav-btn" id="close-qr-zoom-btn" aria-label="Fechar QR Code">✕</button>
+    </div>
+    <div class="dialog-body" style="padding: 1.75rem;">
+      <div class="pin-display-box" style="font-size: 2rem; margin-bottom: 1.25rem;">
+        <span>PIN:</span>
+        <span id="zoom-pin-code">----</span>
+      </div>
+      <div style="background: #ffffff; padding: 1.1rem; border-radius: 1.1rem; display: inline-block; box-shadow: 0 12px 28px rgba(0,0,0,0.35);">
+        <img id="zoom-qr-img" alt="QR Code Ampliado" width="360" height="360" style="display: block; max-width: 100%; height: auto;" />
+      </div>
+      <p class="text-slate" style="margin: 1rem 0 0; font-size: 0.95rem;">
+        Use a câmera do celular ou o botão <strong>"📷 Escanear QR Code"</strong> no painel do Kenade.
+      </p>
+    </div>
+  </dialog>
+
+  <!-- Modal <dialog> para o Criador da Sala gerenciar membros pelo @usuário -->
+  <dialog id="monitor-members-dialog" aria-labelledby="monitor-members-title" closedby="any">
+    <div class="dialog-header">
+      <h2 id="monitor-members-title" style="margin: 0; font-size: 1.2rem;">Gerenciar Membros da Equipe</h2>
+      <button type="button" class="nav-btn" id="close-monitor-members-btn" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="form-group">
+        <label class="form-label" for="monitor-member-search">Pesquisar @usuário para incluir na equipe</label>
+        <div class="combobox-container">
+          <input
+            type="text"
+            id="monitor-member-search"
+            class="form-input"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Digite @usuário..."
+          />
+          <div id="monitor-member-dropdown" class="combobox-dropdown hidden"></div>
+        </div>
+      </div>
+      <div id="monitor-dialog-members-list" style="display: flex; flex-direction: column; gap: 0.55rem;"></div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-primary" id="done-monitor-members-btn">Concluído</button>
+    </div>
+  </dialog>
+
+  <script src="/common.js"></script>
+  <script>
+    let pin = null;
+    let arenaState = null;
+    let ws = null;
+    let timerInterval = null;
+    let isAdvancing = false;
+    let chartManuallyHidden = false;
+    let lastRoundRendered = -1;
+
+    function toggleFullScreen() {
+      const btn = document.getElementById('fullscreen-toggle-btn');
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().then(() => {
+          btn.textContent = '🗗 Sair da Tela Cheia';
+        }).catch(() => {});
+      } else {
+        document.exitFullscreen().then(() => {
+          btn.textContent = '⛶ Tela Cheia';
+        }).catch(() => {});
+      }
+    }
+
+    function openQRZoomModal() {
+      if (!arenaState || !arenaState.team) return;
+      const t = arenaState.team;
+      const joinUrl = `${window.location.origin}/play?pin=${encodeURIComponent(t.pin)}`;
+      document.getElementById('zoom-pin-code').textContent = t.pin;
+      document.getElementById('zoom-qr-img').src =
+        `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(joinUrl)}`;
+      document.getElementById('qr-zoom-dialog').showModal();
+    }
+
+    async function fetchAndRenderState() {
+      try {
+        const data = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}`);
+        arenaState = data;
+        renderMonitor();
+      } catch (err) {
+        showToast(err.message, 'error');
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 2200);
+      }
+    }
+
+    function connectWS() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = localStorage.getItem('kenade_token') || '';
+      ws = new WebSocket(`${proto}//${window.location.host}/ws/arena/${encodeURIComponent(pin)}?role=monitor&token=${encodeURIComponent(token)}`);
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'arena_state') {
+            await fetchAndRenderState();
+          }
+        } catch {}
+      };
+    }
+
+    function renderMonitor() {
+      if (!arenaState || !arenaState.team) return;
+      const team = arenaState.team;
+      const st = arenaState.stats || {};
+      const q = arenaState.question;
+      const isHost = Boolean(team.is_host);
+
+      if (team.round_number !== lastRoundRendered) {
+        lastRoundRendered = team.round_number;
+        chartManuallyHidden = false;
+      }
+
+      document.getElementById('monitor-team-name').textContent = team.name;
+      document.getElementById('monitor-pin-code').textContent = team.pin;
+      document.getElementById('monitor-lobby-pin').textContent = team.pin;
+      document.getElementById('monitor-team-progress').textContent =
+        `Progresso da Equipe: ${st.mastered_in_cycle || 0}/${st.total_questions || 0} (1º Gerais: ${st.mastered_general_cycle || 0}/${st.total_general || 0} • 2º Específicas: ${st.mastered_specific_cycle || 0}/${st.total_specific || 0} • Ciclo #${team.cycle_count})`;
+
+      const joinUrl = `${window.location.origin}/play?pin=${encodeURIComponent(team.pin)}`;
+      document.getElementById('monitor-qr-img').src =
+        `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(joinUrl)}`;
+
+      document.getElementById('monitor-manage-members-btn').classList.toggle('hidden', !isHost);
+      document.getElementById('host-lobby-controls').classList.toggle('hidden', !isHost);
+      document.getElementById('non-host-lobby-msg').classList.toggle('hidden', isHost);
+      document.getElementById('host-chart-controls').classList.toggle('hidden', !isHost);
+      document.getElementById('host-leaderboard-controls').classList.toggle('hidden', !isHost);
+
+      document.getElementById('monitor-replay-banner').classList.toggle('hidden', !team.last_cycle_restarted);
+
+      const stateName = team.round_state;
+      const isLobby = stateName === 'lobby' || !q;
+      const isLeaderboard = stateName === 'leaderboard';
+      const isQuestionOrRevealed = !isLobby && !isLeaderboard;
+      const isRevealed = stateName === 'revealed';
+
+      document.getElementById('monitor-lobby-panel').classList.toggle('hidden', !isLobby);
+      document.getElementById('monitor-question-panel').classList.toggle('hidden', !isQuestionOrRevealed);
+      document.getElementById('monitor-leaderboard-panel').classList.toggle('hidden', !isLeaderboard);
+
+      // Controla o Overlay Escurecido do Gráfico de Barras por cima de tudo
+      const showChartOverlay = isRevealed && !chartManuallyHidden;
+      document.getElementById('monitor-chart-overlay').classList.toggle('hidden', !showChartOverlay);
+
+      // 1. Se estiver no Lobby
+      if (isLobby) {
+        const lobbyGrid = document.getElementById('monitor-lobby-members-grid');
+        lobbyGrid.innerHTML = '';
+        for (const m of arenaState.members || []) {
+          const chip = document.createElement('div');
+          chip.className = 'member-chip';
+          chip.innerHTML = `
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 800;">
+                <span class="status-dot ${m.is_online ? 'online' : ''}"></span>
+                <span>${escapeHTML(m.name)}</span>
+                <span style="font-size: 0.76rem; color: var(--color-lavender-soft);">(@${escapeHTML(m.username)})</span>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--color-lavender-soft); margin-top: 0.2rem;">
+                ${m.is_online ? '🟢 Conectado no Lobby' : '⚪ Aguardando entrar'}
+              </div>
+            </div>
+            <div style="font-weight: 900; color: var(--color-amber);">${m.score_in_team} pts</div>
+          `;
+          lobbyGrid.appendChild(chip);
+        }
+      }
+
+      // 2. Se estiver em Pergunta Ativa ou Gabarito Revelado
+      if (q && isQuestionOrRevealed) {
+        const isGen = q.category === 'general';
+        const mBadge = document.getElementById('monitor-category-badge');
+        mBadge.textContent = isGen ? '1ª Etapa: Pergunta Geral' : '2ª Etapa: Pergunta Específica';
+        mBadge.className = `category-badge ${isGen ? 'general' : 'specific'}`;
+
+        document.getElementById('monitor-round-label').textContent = `Rodada #${team.round_number}`;
+
+        const answered = team.answered_count || 0;
+        const totalM = team.total_members || 0;
+        const missing = Math.max(0, totalM - answered);
+        document.getElementById('monitor-answered-num').textContent = `${answered} / ${totalM}`;
+        document.getElementById('monitor-missing-num').textContent = `${missing}`;
+
+        document.getElementById('monitor-statement-text').textContent = q.statement;
+
+        const counts = arenaState.option_counts || { A: 0, B: 0, C: 0, D: 0 };
+        const maxVotes = Math.max(1, counts.A || 0, counts.B || 0, counts.C || 0, counts.D || 0);
+
+        for (const letter of ['A', 'B', 'C', 'D']) {
+          const optText = q[`option_${letter.toLowerCase()}`] || '';
+          const isCorr = isRevealed && q.correct_option === letter;
+          document.getElementById(`monitor-opt-${letter}`).textContent =
+            optText + (isCorr ? '  ✅' : '');
+
+          const card = document.getElementById(`monitor-card-${letter}`);
+          card.classList.remove('correct-reveal', 'dimmed-reveal');
+          if (isRevealed) {
+            if (isCorr) {
+              card.classList.add('correct-reveal');
+            } else {
+              card.classList.add('dimmed-reveal');
+            }
+          }
+
+          // Atualiza barra do Gráfico de Barras no Overlay
+          const vCount = counts[letter] || 0;
+          const barEl = document.getElementById(`chart-bar-${letter}`);
+          const countEl = document.getElementById(`chart-count-${letter}`);
+          if (barEl && countEl) {
+            const barHeightPx = Math.max(14, Math.round((vCount / maxVotes) * 125));
+            barEl.style.height = `${barHeightPx}px`;
+            barEl.classList.toggle('is-correct-bar', isCorr);
+            countEl.innerHTML = `${vCount}${isCorr ? ' <span style="color:var(--color-emerald);">✓</span>' : ''}`;
+          }
+        }
+
+        if (isRevealed) {
+          const corrLetter = q.correct_option || '';
+          const corrText = q[`option_${corrLetter.toLowerCase()}`] || '';
+          document.getElementById('chart-correct-heading').textContent =
+            `✅ Resposta Correta: Alternativa ${corrLetter} — ${corrText}`;
+
+          const hasExp = Boolean(q.explanation && q.explanation.trim() !== '');
+          document.getElementById('monitor-explanation-box').classList.toggle('hidden', !hasExp);
+          document.getElementById('monitor-explanation-text').textContent = hasExp ? q.explanation : '';
+        }
+
+        document.getElementById('monitor-reveal-now-btn').classList.toggle('hidden', !(isHost && !isRevealed));
+        document.getElementById('monitor-reopen-chart-btn').classList.toggle('hidden', !(isRevealed && chartManuallyHidden));
+      }
+
+      // 3. Se estiver na Tela de Ranking da Equipe (Top 5)
+      if (isLeaderboard) {
+        document.getElementById('leaderboard-team-title').textContent = `🏆 Top 5 — ${team.name}`;
+        const top5Container = document.getElementById('top5-members-container');
+        top5Container.innerHTML = '';
+
+        const top5 = (arenaState.members || []).slice(0, 5);
+        top5.forEach((m, idx) => {
+          const pos = idx + 1;
+          const medal = pos === 1 ? '🥇 1º' : pos === 2 ? '🥈 2º' : pos === 3 ? '🥉 3º' : `${pos}º`;
+          const row = document.createElement('div');
+          row.className = `top5-row ${pos === 1 ? 'rank-1' : ''} animate-pop-${Math.min(4, pos)}`;
+          const roundDelta = m.points_earned > 0 ? `<span style="color: var(--color-emerald); font-size: 0.95rem; margin-right: 0.65rem;">+${m.points_earned} pts</span>` : '';
+
+          row.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.85rem;">
+              <span style="font-weight: 900; font-size: 1.4rem; min-width: 3.4rem;">${medal}</span>
+              <div>
+                <div style="font-weight: 900; font-size: 1.2rem;">
+                  ${escapeHTML(m.name)}
+                  <span style="font-size: 0.86rem; color: var(--color-lavender-soft); font-weight: 600;">(@${escapeHTML(m.username)})</span>
+                  ${m.current_streak >= 2 ? `<span class="streak-pill" style="margin-left: 0.4rem;">🔥 ${m.current_streak}x</span>` : ''}
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-lavender-soft);">
+                  ${m.correct_in_team} acerto(s) em ${m.answered_in_team} rodada(s)
+                </div>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              ${roundDelta}
+              <span style="font-weight: 900; font-size: 1.5rem; color: var(--color-amber);">${m.score_in_team} pts</span>
+            </div>
+          `;
+          top5Container.appendChild(row);
+        });
+      }
+
+      startMonitorTimers(team);
+      renderDialogMembersList();
+    }
+
+    function startMonitorTimers(team) {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+
+      let readingRem = team.reading_remaining_sec || 0;
+      const readingTotal = team.reading_phase_total || 5;
+      let answerRem = team.remaining_sec || 0;
+      const roundState = team.round_state;
+
+      const readingBanner = document.getElementById('monitor-reading-banner');
+      const readingTitle = document.getElementById('monitor-reading-title');
+      const readingBar = document.getElementById('monitor-reading-bar');
+      const optionsGrid = document.getElementById('monitor-options-grid');
+      const circle = document.getElementById('monitor-timer-circle');
+
+      const tick = () => {
+        if (roundState !== 'question') {
+          readingBanner.classList.add('hidden');
+          optionsGrid.classList.remove('hidden');
+          circle.textContent = 'FIM';
+          circle.className = 'timer-badge';
+          return;
+        }
+
+        if (readingRem > 0) {
+          readingBanner.classList.remove('hidden');
+          optionsGrid.classList.add('hidden');
+          readingTitle.textContent = `🚀 COMEÇOU! Leia a pergunta... As opções abrem em ${readingRem}s`;
+          const pct = Math.max(0, Math.min(100, (readingRem / readingTotal) * 100));
+          readingBar.style.width = `${pct}%`;
+          circle.textContent = 'LEIA';
+          circle.className = 'timer-badge low-time';
+        } else {
+          readingBanner.classList.add('hidden');
+          optionsGrid.classList.remove('hidden');
+          circle.textContent = `${answerRem}s`;
+          circle.className = 'timer-badge';
+          if (answerRem <= 10) {
+            circle.classList.add('critical-time');
+          } else if (answerRem <= 20) {
+            circle.classList.add('low-time');
+          }
+        }
+      };
+
+      tick();
+      if (roundState === 'question') {
+        timerInterval = setInterval(() => {
+          if (readingRem > 0) {
+            readingRem--;
+          } else if (answerRem > 0) {
+            answerRem--;
+          } else {
+            clearInterval(timerInterval);
+          }
+          tick();
+        }, 1000);
+      }
+    }
+
+    function renderDialogMembersList() {
+      const list = document.getElementById('monitor-dialog-members-list');
+      if (!list || !arenaState) return;
+      list.innerHTML = '';
+
+      for (const m of arenaState.members || []) {
+        const row = document.createElement('div');
+        row.className = 'stat-box';
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.innerHTML = `
+          <div>
+            <strong>@${escapeHTML(m.username)}</strong> (${escapeHTML(m.name)})
+            ${m.is_host ? '<span class="role-tag admin" style="margin-left:0.4rem;">Criador</span>' : ''}
+          </div>
+          ${
+            !m.is_host
+              ? `<button type="button" class="btn btn-crimson" data-mon-rm="${m.user_id}" style="padding: 0.3rem 0.7rem; font-size: 0.8rem;">Remover</button>`
+              : ''
+          }
+        `;
+        list.appendChild(row);
+      }
+
+      list.querySelectorAll('[data-mon-rm]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/members`, {
+              method: 'POST',
+              body: JSON.stringify({ user_id: Number(btn.dataset.monRm), action: 'remove' }),
+            });
+            arenaState = updated;
+            renderMonitor();
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      });
+    }
+
+    async function goToLeaderboard() {
+      if (isAdvancing) return;
+      isAdvancing = true;
+      try {
+        const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/leaderboard`, { method: 'POST' });
+        arenaState = updated;
+        renderMonitor();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        isAdvancing = false;
+      }
+    }
+
+    async function goToNextQuestion() {
+      if (isAdvancing) return;
+      isAdvancing = true;
+      try {
+        chartManuallyHidden = false;
+        const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/next`, { method: 'POST' });
+        arenaState = updated;
+        renderMonitor();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        isAdvancing = false;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      initDialogLightDismissFallback();
+      const params = new URLSearchParams(window.location.search);
+      pin = (params.get('pin') || '').trim();
+      if (!pin) {
+        window.location.href = '/';
+        return;
+      }
+
+      document.getElementById('fullscreen-toggle-btn').addEventListener('click', toggleFullScreen);
+      document.getElementById('qr-expand-trigger').addEventListener('click', openQRZoomModal);
+      document.getElementById('monitor-Lobby-qr-btn').addEventListener('click', openQRZoomModal);
+      document.getElementById('close-qr-zoom-btn').addEventListener('click', () =>
+        document.getElementById('qr-zoom-dialog').close()
+      );
+
+      document.getElementById('peek-question-behind-btn').addEventListener('click', () => {
+        chartManuallyHidden = true;
+        renderMonitor();
+      });
+      document.getElementById('monitor-reopen-chart-btn').addEventListener('click', () => {
+        chartManuallyHidden = false;
+        renderMonitor();
+      });
+
+      document.getElementById('monitor-start-round-btn').addEventListener('click', goToNextQuestion);
+      document.getElementById('monitor-go-leaderboard-btn').addEventListener('click', goToLeaderboard);
+      document.getElementById('monitor-next-question-btn').addEventListener('click', goToNextQuestion);
+
+      document.getElementById('monitor-reveal-now-btn').addEventListener('click', async () => {
+        try {
+          chartManuallyHidden = false;
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/reveal`, { method: 'POST' });
+          arenaState = updated;
+          renderMonitor();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.code !== 'Space') return;
+        const activeTag = document.activeElement ? document.activeElement.tagName : '';
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || document.querySelector('dialog[open]')) {
+          return;
+        }
+        if (!arenaState || !arenaState.team || !arenaState.team.is_host) return;
+
+        const st = arenaState.team.round_state;
+        if (st === 'revealed') {
+          e.preventDefault();
+          goToLeaderboard();
+        } else if (st === 'leaderboard' || st === 'lobby') {
+          e.preventDefault();
+          goToNextQuestion();
+        }
+      });
+
+      document.getElementById('monitor-reset-team-btn').addEventListener('click', async () => {
+        if (!confirm('Deseja zerar o progresso e placar desta Equipe para recomeçar do zero?')) return;
+        try {
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/reset`, { method: 'POST' });
+          arenaState = updated;
+          renderMonitor();
+          showToast('Progresso da equipe zerado!', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      document.getElementById('monitor-manage-members-btn').addEventListener('click', () => {
+        renderDialogMembersList();
+        document.getElementById('monitor-members-dialog').showModal();
+      });
+      document.getElementById('close-monitor-members-btn').addEventListener('click', () =>
+        document.getElementById('monitor-members-dialog').close()
+      );
+      document.getElementById('done-monitor-members-btn').addEventListener('click', () =>
+        document.getElementById('monitor-members-dialog').close()
+      );
+
+      createUserSearchCombobox({
+        inputEl: document.getElementById('monitor-member-search'),
+        dropdownEl: document.getElementById('monitor-member-dropdown'),
+        filterFn: (u) => {
+          if (!arenaState) return true;
+          return !(arenaState.members || []).some((m) => m.user_id === u.id);
+        },
+        onSelectUser: async (u) => {
+          try {
+            const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/members`, {
+              method: 'POST',
+              body: JSON.stringify({ user_id: u.id, action: 'add' }),
+            });
+            arenaState = updated;
+            renderMonitor();
+            showToast(`@${u.username} adicionado à equipe!`, 'success');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      });
+
+      await fetchAndRenderState();
+      connectWS();
+    });
+  </script>
+</body>
+</html>

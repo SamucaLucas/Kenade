@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- MANDATORY: Declare support for both light and dark themes, defaulting to dark -->
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    try {
+      document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "dark";
+    } catch (e) {}
+  </script>
+  <title>Entrar — Kenade (Quiz ENADE Colaborativo)</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a class="brand-logo" href="/login">
+        <img src="/favicon.svg" alt="Logo Kenade" class="brand-logo-icon" width="36" height="36" />
+        <span>KENADE</span>
+        <span class="brand-badge">ENADE Quiz</span>
+      </a>
+      <button type="button" class="nav-btn" id="theme-toggle-btn">☀️ Modo Claro</button>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <section style="max-width: 460px; margin: 2rem auto;">
+      <div class="card">
+        <div style="text-align: center; margin-bottom: 1.25rem;">
+          <img src="/logo.svg" alt="Kenade — ENADE Quiz" width="220" height="52" style="margin-bottom: 0.5rem; max-width: 100%; height: auto;" />
+          <h1 class="card-title" style="font-size: 1.5rem;">Bem-vindo ao Kenade</h1>
+          <p class="text-slate" style="margin: 0; font-size: 0.92rem;">
+            Quiz Único Colaborativo para o ENADE • Modo Arena em Equipe &amp; Estudo Solo
+          </p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; background: var(--bg-elevated); padding: 0.35rem; border-radius: 0.75rem; margin-bottom: 1.25rem;">
+          <button type="button" class="btn btn-primary" id="tab-login-btn" style="padding: 0.55rem;">Entrar</button>
+          <button type="button" class="btn btn-outline" id="tab-register-btn" style="padding: 0.55rem; border: none;">Criar Conta</button>
+        </div>
+
+        <!-- Formulário de Login (Modern Web Guidance: autofill-sign-in-form) -->
+        <form id="login-form">
+          <div class="form-group">
+            <label class="form-label" for="login-username">Usuário (@username)</label>
+            <input
+              type="text"
+              class="form-input"
+              id="login-username"
+              name="username"
+              autocomplete="username"
+              spellcheck="false"
+              autocorrect="off"
+              autocapitalize="none"
+              enterkeyhint="next"
+              required
+              placeholder="ex: @samuel"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="login-password">Senha</label>
+            <div class="password-wrapper">
+              <input
+                type="password"
+                class="form-input"
+                id="login-password"
+                name="password"
+                autocomplete="current-password"
+                enterkeyhint="done"
+                required
+                placeholder="Sua senha"
+              />
+              <button type="button" class="btn btn-outline" id="toggle-login-pw" aria-label="Mostrar senha">Mostrar</button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-brand" style="width: 100%; margin-top: 0.4rem;">
+            Entrar no Kenade
+          </button>
+        </form>
+
+        <!-- Formulário de Cadastro (Modern Web Guidance: autofill-sign-up-form) -->
+        <form id="register-form" class="hidden">
+          <div class="form-group">
+            <label class="form-label" for="register-name">Seu Nome</label>
+            <input
+              type="text"
+              class="form-input"
+              id="register-name"
+              name="name"
+              autocomplete="name"
+              enterkeyhint="next"
+              required
+              placeholder="ex: Samuel Lucas"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="register-username">Nome de Usuário (@username)</label>
+            <input
+              type="text"
+              class="form-input"
+              id="register-username"
+              name="username"
+              autocomplete="username"
+              spellcheck="false"
+              autocorrect="off"
+              autocapitalize="none"
+              enterkeyhint="next"
+              required
+              placeholder="ex: samuel"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="register-password">Nova Senha (mín. 4 caracteres)</label>
+            <div class="password-wrapper">
+              <input
+                type="password"
+                class="form-input"
+                id="register-password"
+                name="new-password"
+                autocomplete="new-password"
+                minlength="4"
+                enterkeyhint="done"
+                required
+                placeholder="Crie uma senha"
+              />
+              <button type="button" class="btn btn-outline" id="toggle-register-pw" aria-label="Mostrar senha">Mostrar</button>
+            </div>
+          </div>
+
+          <p class="text-slate" style="font-size: 0.8rem; margin: 0.4rem 0 0.9rem;">
+            * O 1º usuário cadastrado no sistema torna-se automaticamente <strong>Admin</strong> e pode promover os amigos pelo @username.
+          </p>
+
+          <button type="submit" class="btn btn-brand" style="width: 100%;">
+            Criar Conta e Começar
+          </button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="/common.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      updateThemeButtonLabel();
+      document.getElementById('theme-toggle-btn').addEventListener('click', toggleColorScheme);
+
+      const tabLogin = document.getElementById('tab-login-btn');
+      const tabRegister = document.getElementById('tab-register-btn');
+      const loginForm = document.getElementById('login-form');
+      const registerForm = document.getElementById('register-form');
+
+      tabLogin.addEventListener('click', () => {
+        tabLogin.className = 'btn btn-primary';
+        tabRegister.className = 'btn btn-outline';
+        tabRegister.style.border = 'none';
+        loginForm.classList.remove('hidden');
+        registerForm.classList.add('hidden');
+      });
+
+      tabRegister.addEventListener('click', () => {
+        tabRegister.className = 'btn btn-primary';
+        tabLogin.className = 'btn btn-outline';
+        tabLogin.style.border = 'none';
+        registerForm.classList.remove('hidden');
+        loginForm.classList.add('hidden');
+      });
+
+      document.getElementById('toggle-login-pw').addEventListener('click', (e) => {
+        const inp = document.getElementById('login-password');
+        const isPw = inp.type === 'password';
+        inp.type = isPw ? 'text' : 'password';
+        e.currentTarget.textContent = isPw ? 'Ocultar' : 'Mostrar';
+      });
+
+      document.getElementById('toggle-register-pw').addEventListener('click', (e) => {
+        const inp = document.getElementById('register-password');
+        const isPw = inp.type === 'password';
+        inp.type = isPw ? 'text' : 'password';
+        e.currentTarget.textContent = isPw ? 'Ocultar' : 'Mostrar';
+      });
+
+      const redirectAfterAuth = () => {
+        const params = new URLSearchParams(window.location.search);
+        const pin = params.get('pin');
+        if (pin) {
+          window.location.href = `/play?pin=${encodeURIComponent(pin.trim())}`;
+        } else {
+          window.location.href = '/';
+        }
+      };
+
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const data = await apiFetch('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: document.getElementById('login-username').value,
+              password: document.getElementById('login-password').value,
+            }),
+          });
+          localStorage.setItem('kenade_token', data.token);
+          redirectAfterAuth();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const data = await apiFetch('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: document.getElementById('register-name').value,
+              username: document.getElementById('register-username').value,
+              password: document.getElementById('register-password').value,
+            }),
+          });
+          localStorage.setItem('kenade_token', data.token);
+          redirectAfterAuth();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

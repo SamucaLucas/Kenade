@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    try {
+      document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "dark";
+    } catch (e) {}
+  </script>
+  <title>Rankings Globais (Jogadores &amp; Equipes) — Kenade</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a class="brand-logo" href="/">
+        <img src="/favicon.svg" alt="Logo Kenade" class="brand-logo-icon" width="36" height="36" />
+        <span>KENADE</span>
+        <span class="brand-badge">ENADE Quiz</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Navegação principal">
+        <a class="nav-btn" data-nav="dashboard" href="/">Início &amp; Salas</a>
+        <a class="nav-btn" data-nav="solo" href="/solo">Estudo Solo (Celular)</a>
+        <a class="nav-btn" data-nav="ranking" href="/ranking">Rankings</a>
+        <!-- Oculto para jogadores comuns -->
+        <a class="nav-btn hidden admin-only" data-nav="questions" href="/questions">Banco de Questões</a>
+        <button type="button" class="nav-btn" id="theme-toggle-btn">☀️ Modo Claro</button>
+      </nav>
+
+      <div class="user-pill">
+        <span id="header-user-name">...</span>
+        <span class="role-tag" id="header-user-role"></span>
+        <button type="button" class="nav-btn" id="logout-btn" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">Sair</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <div class="card">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <h1 class="card-title">Rankings Oficiais ENADE</h1>
+          <p class="text-slate" style="margin: 0; font-size: 0.92rem;">
+            Classificados pelos <strong>Acertos Únicos</strong> (questões dominadas no banco), com ranking individual e <strong>Ranking Exclusivo de Equipes</strong>.
+          </p>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; width: 100%;">
+          <button type="button" class="btn btn-primary" id="tab-players-ranking-btn" style="flex: 1; min-width: 0; padding: 0.65rem 0.75rem;">👤 Jogadores</button>
+          <button type="button" class="btn btn-outline" id="tab-teams-ranking-btn" style="flex: 1; min-width: 0; padding: 0.65rem 0.75rem;">🛡️ Equipes</button>
+          <button type="button" class="btn btn-outline" id="refresh-ranking-btn" title="Atualizar Ranking" style="padding: 0.65rem 0.9rem;">↻</button>
+        </div>
+      </div>
+
+      <!-- 1. Tabela de Ranking Individual de Jogadores -->
+      <div id="players-ranking-panel">
+        <div tabindex="0" role="region" aria-labelledby="ranking-table-caption" class="table-wrapper">
+          <table>
+            <caption id="ranking-table-caption">Ranking Global Individual — Classificado por Acertos Únicos</caption>
+            <thead>
+              <tr>
+                <th scope="col">Jogador</th>
+                <th scope="col">Acertos Únicos (Classificação)</th>
+                <th scope="col">Total de Acertos Acumulados</th>
+                <th scope="col">Ciclos (Replays)</th>
+                <th scope="col">Aproveitamento</th>
+              </tr>
+            </thead>
+            <tbody id="players-ranking-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 2. Tabela de Ranking Exclusivo de Equipes (usando o Nome da Equipe) -->
+      <div id="teams-ranking-panel" class="hidden">
+        <div tabindex="0" role="region" aria-labelledby="teams-table-caption" class="table-wrapper">
+          <table class="teams-ranking-table">
+            <caption id="teams-table-caption">Ranking Exclusivo de Equipes Arena — Classificado por Questões Dominadas pela Equipe</caption>
+            <thead>
+              <tr>
+                <th scope="col">Nome da Equipe</th>
+                <th scope="col">Acertos Únicos da Equipe</th>
+                <th scope="col">Total de Acertos da Equipe</th>
+                <th scope="col">Ciclos da Equipe</th>
+                <th scope="col">Pontuação &amp; Membros</th>
+              </tr>
+            </thead>
+            <tbody id="teams-ranking-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/common.js"></script>
+  <script>
+    let currentUser = null;
+
+    async function loadRankings() {
+      try {
+        const data = await apiFetch('/api/ranking');
+        const totalQ = data.total_questions || 0;
+
+        const pTbody = document.getElementById('players-ranking-tbody');
+        pTbody.innerHTML = '';
+
+        for (const row of data.ranking || []) {
+          const tr = document.createElement('tr');
+          const medal =
+            row.position === 1 ? '🥇 1º' : row.position === 2 ? '🥈 2º' : row.position === 3 ? '🥉 3º' : `${row.position}º`;
+          const isMe = currentUser && row.user_id === currentUser.id;
+
+          const th = document.createElement('th');
+          th.scope = 'row';
+          th.innerHTML = `${medal} — <strong>${escapeHTML(row.name)}</strong> <span class="text-slate" style="font-weight:500;">(@${escapeHTML(row.username)})</span> ${isMe ? '<span class="role-tag admin">VOCÊ</span>' : ''}`;
+
+          const tdUnique = document.createElement('td');
+          tdUnique.innerHTML = `<strong style="color: var(--color-cyan); font-size: 1.08rem;">${row.unique_correct}</strong> <span class="text-slate">/ ${totalQ} questões</span>`;
+
+          const tdTotal = document.createElement('td');
+          tdTotal.innerHTML = `<strong>${row.total_correct}</strong> <span class="text-slate">acertos (${row.total_answered} resp.)</span>`;
+
+          const tdCycles = document.createElement('td');
+          tdCycles.innerHTML = `<span class="role-tag player">${row.cycle_count} ciclo(s)</span>`;
+
+          const tdAcc = document.createElement('td');
+          tdAcc.textContent = `${row.accuracy.toFixed(1)}%`;
+
+          tr.append(th, tdUnique, tdTotal, tdCycles, tdAcc);
+          pTbody.appendChild(tr);
+        }
+
+        const tTbody = document.getElementById('teams-ranking-tbody');
+        tTbody.innerHTML = '';
+
+        const teams = data.team_ranking || [];
+        if (teams.length === 0) {
+          tTbody.innerHTML = `<tr><th scope="row" colspan="5" class="text-slate">Nenhuma equipe criada ainda.</th></tr>`;
+        } else {
+          for (const t of teams) {
+            const tr = document.createElement('tr');
+            const medal =
+              t.position === 1 ? '🥇 1º' : t.position === 2 ? '🥈 2º' : t.position === 3 ? '🥉 3º' : `${t.position}º`;
+
+            const th = document.createElement('th');
+            th.scope = 'row';
+            th.innerHTML = `${medal} — 🛡️ <strong>${escapeHTML(t.name)}</strong>`;
+
+            const tdUnique = document.createElement('td');
+            tdUnique.innerHTML = `<strong style="color: var(--color-amber); font-size: 1.08rem;">${t.unique_correct}</strong> <span class="text-slate">/ ${totalQ} questões</span>`;
+
+            const tdTotal = document.createElement('td');
+            tdTotal.innerHTML = `<strong>${t.total_correct}</strong> <span class="text-slate">acertos acumulados</span>`;
+
+            const tdCycles = document.createElement('td');
+            tdCycles.innerHTML = `<span class="role-tag player">${t.cycle_count} ciclo(s)</span>`;
+
+            const tdScore = document.createElement('td');
+            tdScore.innerHTML = `<strong style="color: var(--color-emerald);">${t.total_score} pts</strong> <div class="text-slate" style="font-size: 0.78rem;">${escapeHTML((t.members_list || []).join(', '))}</div>`;
+
+            tr.append(th, tdUnique, tdTotal, tdCycles, tdScore);
+            tTbody.appendChild(tr);
+          }
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const me = await initAuthenticatedPage('ranking');
+      currentUser = me.user;
+
+      const btnPlayers = document.getElementById('tab-players-ranking-btn');
+      const btnTeams = document.getElementById('tab-teams-ranking-btn');
+      const panelPlayers = document.getElementById('players-ranking-panel');
+      const panelTeams = document.getElementById('teams-ranking-panel');
+
+      btnPlayers.addEventListener('click', () => {
+        btnPlayers.className = 'btn btn-primary';
+        btnTeams.className = 'btn btn-outline';
+        panelPlayers.classList.remove('hidden');
+        panelTeams.classList.add('hidden');
+      });
+
+      btnTeams.addEventListener('click', () => {
+        btnTeams.className = 'btn btn-purple';
+        btnPlayers.className = 'btn btn-outline';
+        panelTeams.classList.remove('hidden');
+        panelPlayers.classList.add('hidden');
+      });
+
+      document.getElementById('refresh-ranking-btn').addEventListener('click', loadRankings);
+      loadRankings();
+    });
+  </script>
+</body>
+</html>

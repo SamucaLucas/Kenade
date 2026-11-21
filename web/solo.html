@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    try {
+      document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "dark";
+    } catch (e) {}
+  </script>
+  <title>Modo Estudo Solo — Kenade</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a class="brand-logo" href="/">
+        <img src="/favicon.svg" alt="Logo Kenade" class="brand-logo-icon" width="36" height="36" />
+        <span>KENADE</span>
+        <span class="brand-badge">ENADE Quiz</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Navegação principal">
+        <a class="nav-btn" data-nav="dashboard" href="/">Início &amp; Salas</a>
+        <a class="nav-btn" data-nav="solo" href="/solo">Estudo Solo (Celular)</a>
+        <a class="nav-btn" data-nav="ranking" href="/ranking">Rankings</a>
+        <!-- Oculto para jogadores comuns -->
+        <a class="nav-btn hidden admin-only" data-nav="questions" href="/questions">Banco de Questões</a>
+        <button type="button" class="nav-btn" id="theme-toggle-btn">☀️ Modo Claro</button>
+      </nav>
+
+      <div class="user-pill">
+        <span id="header-user-name">...</span>
+        <span class="role-tag" id="header-user-role"></span>
+        <button type="button" class="nav-btn" id="logout-btn" style="padding: 0.25rem 0.65rem; font-size: 0.78rem;">Sair</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <div class="card">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <span class="category-badge general" id="solo-category-badge">1ª Etapa: Pergunta Geral</span>
+          <span class="role-tag player" id="solo-cycle-badge">Ciclo #0</span>
+        </div>
+        <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-muted);" id="solo-counter-text">
+          Dominadas no ciclo: 0 / 0
+        </div>
+      </div>
+
+      <div class="progress-track">
+        <div class="progress-fill" id="solo-progress-bar" style="width: 0%;"></div>
+      </div>
+
+      <div id="solo-replay-banner" class="feedback-banner cycle-replay hidden">
+        🎉 Parabéns! Você respondeu corretamente 100% das questões Gerais e Específicas do banco! Um novo ciclo de Replay foi iniciado!
+      </div>
+
+      <div id="solo-empty-state" class="hidden" style="text-align: center; padding: 2.5rem 1rem;">
+        <h3>Nenhuma questão cadastrada no banco ainda</h3>
+        <p class="text-slate">Aguarde os administradores cadastrarem as questões Gerais e Específicas do ENADE.</p>
+        <a class="btn btn-primary hidden admin-only" href="/questions">Ir para o Banco de Questões (Admin)</a>
+      </div>
+
+      <div id="solo-question-container">
+        <div class="question-statement-box" id="solo-statement">Carregando questão...</div>
+
+        <div class="options-grid" id="solo-options-grid">
+          <button type="button" class="option-btn opt-A animate-pop-1" data-opt="A">
+            <span class="option-letter">A</span>
+            <span class="option-text" id="solo-opt-A"></span>
+          </button>
+          <button type="button" class="option-btn opt-B animate-pop-2" data-opt="B">
+            <span class="option-letter">B</span>
+            <span class="option-text" id="solo-opt-B"></span>
+          </button>
+          <button type="button" class="option-btn opt-C animate-pop-3" data-opt="C">
+            <span class="option-letter">C</span>
+            <span class="option-text" id="solo-opt-C"></span>
+          </button>
+          <button type="button" class="option-btn opt-D animate-pop-4" data-opt="D">
+            <span class="option-letter">D</span>
+            <span class="option-text" id="solo-opt-D"></span>
+          </button>
+        </div>
+
+        <div id="solo-feedback-box" class="feedback-banner hidden">
+          <div id="solo-feedback-title" style="font-size: 1.08rem;"></div>
+          <div id="solo-feedback-explanation" style="margin-top: 0.5rem; font-weight: 500; font-size: 0.95rem; white-space: pre-wrap;"></div>
+        </div>
+
+        <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+          <button type="button" class="btn btn-brand hidden" id="solo-next-btn">
+            Próxima Questão &rarr;
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/common.js"></script>
+  <script>
+    let currentQuestion = null;
+    let isAnswered = false;
+
+    async function loadNextQuestion() {
+      try {
+        const data = await apiFetch('/api/solo/next');
+        const emptyEl = document.getElementById('solo-empty-state');
+        const qContainer = document.getElementById('solo-question-container');
+        const replayBanner = document.getElementById('solo-replay-banner');
+
+        if (data.empty || !data.question) {
+          emptyEl.classList.remove('hidden');
+          qContainer.classList.add('hidden');
+          replayBanner.classList.add('hidden');
+          return;
+        }
+
+        emptyEl.classList.add('hidden');
+        qContainer.classList.remove('hidden');
+        replayBanner.classList.toggle('hidden', !data.cycle_restarted);
+
+        currentQuestion = data.question;
+        isAnswered = false;
+
+        const catBadge = document.getElementById('solo-category-badge');
+        if (data.question.category === 'general') {
+          catBadge.textContent = '1ª Etapa: Pergunta Geral';
+          catBadge.className = 'category-badge general';
+        } else {
+          catBadge.textContent = '2ª Etapa: Pergunta Específica';
+          catBadge.className = 'category-badge specific';
+        }
+
+        const st = data.stats;
+        const pct = st.total_questions > 0 ? Math.round((st.mastered_in_cycle / st.total_questions) * 100) : 0;
+        document.getElementById('solo-cycle-badge').textContent = `Ciclo #${st.cycle_count}`;
+        document.getElementById('solo-counter-text').textContent =
+          `Ciclo: ${st.mastered_in_cycle}/${st.total_questions} (1º Gerais: ${st.mastered_general_cycle}/${st.total_general} • 2º Específicas: ${st.mastered_specific_cycle}/${st.total_specific})`;
+        document.getElementById('solo-progress-bar').style.width = `${pct}%`;
+
+        document.getElementById('solo-statement').textContent = data.question.statement;
+        document.getElementById('solo-opt-A').textContent = data.question.option_a;
+        document.getElementById('solo-opt-B').textContent = data.question.option_b;
+        document.getElementById('solo-opt-C').textContent = data.question.option_c;
+        document.getElementById('solo-opt-D').textContent = data.question.option_d;
+
+        for (const btn of document.querySelectorAll('#solo-options-grid .option-btn')) {
+          btn.disabled = false;
+          btn.classList.remove('selected-option', 'correct-reveal', 'wrong-reveal', 'dimmed-reveal');
+        }
+
+        document.getElementById('solo-feedback-box').classList.add('hidden');
+        document.getElementById('solo-next-btn').classList.add('hidden');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    async function submitAnswer(selectedOpt) {
+      if (!currentQuestion || isAnswered) return;
+      isAnswered = true;
+
+      for (const btn of document.querySelectorAll('#solo-options-grid .option-btn')) {
+        btn.disabled = true;
+        if (btn.dataset.opt === selectedOpt) {
+          btn.classList.add('selected-option');
+        }
+      }
+
+      try {
+        const res = await apiFetch('/api/solo/answer', {
+          method: 'POST',
+          body: JSON.stringify({
+            question_id: currentQuestion.id,
+            selected_option: selectedOpt,
+          }),
+        });
+
+        const st = res.stats;
+        const pct = st.total_questions > 0 ? Math.round((st.mastered_in_cycle / st.total_questions) * 100) : 0;
+        document.getElementById('solo-counter-text').textContent =
+          `Ciclo: ${st.mastered_in_cycle}/${st.total_questions} (1º Gerais: ${st.mastered_general_cycle}/${st.total_general} • 2º Específicas: ${st.mastered_specific_cycle}/${st.total_specific})`;
+        document.getElementById('solo-progress-bar').style.width = `${pct}%`;
+
+        for (const btn of document.querySelectorAll('#solo-options-grid .option-btn')) {
+          const opt = btn.dataset.opt;
+          if (opt === res.correct_option) {
+            btn.classList.add('correct-reveal');
+          } else if (opt === selectedOpt && !res.is_correct) {
+            btn.classList.add('wrong-reveal');
+          } else {
+            btn.classList.add('dimmed-reveal');
+          }
+        }
+
+        const fbBox = document.getElementById('solo-feedback-box');
+        const fbTitle = document.getElementById('solo-feedback-title');
+        const fbExp = document.getElementById('solo-feedback-explanation');
+
+        fbBox.classList.remove('hidden', 'correct', 'wrong');
+        if (res.is_correct) {
+          fbBox.classList.add('correct');
+          fbTitle.textContent = `✅ Resposta Correta! (Alternativa ${res.correct_option}) — Não se repetirá neste ciclo.`;
+        } else {
+          fbBox.classList.add('wrong');
+          fbTitle.textContent = `❌ Resposta Incorreta! O gabarito é a Alternativa ${res.correct_option} — Voltará mais adiante no ciclo.`;
+        }
+
+        fbExp.textContent = res.explanation ? `💡 Gabarito Comentado: ${res.explanation}` : '';
+        document.getElementById('solo-next-btn').classList.remove('hidden');
+      } catch (err) {
+        isAnswered = false;
+        showToast(err.message, 'error');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await initAuthenticatedPage('solo');
+      document.querySelectorAll('#solo-options-grid .option-btn').forEach((btn) => {
+        btn.addEventListener('click', () => submitAnswer(btn.dataset.opt));
+      });
+      document.getElementById('solo-next-btn').addEventListener('click', loadNextQuestion);
+      loadNextQuestion();
+    });
+  </script>
+</body>
+</html>
