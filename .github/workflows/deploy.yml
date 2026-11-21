@@ -24,7 +24,7 @@ jobs:
             git pull origin main
 
             # Compila o binário atualizado
-            /usr/local/go/bin/go build -o kenade-app main.go
+            /usr/bin/go build -o kenade-app main.go
 
             # Reinicia o serviço
             systemctl restart kenade.service
