@@ -3,8 +3,6 @@ package quiz
 import (
 	"Kenade/internal/models"
 	"errors"
-	"math/rand"
-	"time"
 
 	"gorm.io/gorm"
 )
@@ -33,35 +31,28 @@ type NextQuestionResult struct {
 	Stats          ProgressStats    `json:"stats"`
 }
 
-// GetUserSoloStats calcula as estatísticas detalhadas do usuário no banco de questões.
+// GetUserSoloStats calcula todas as estatísticas do usuário no banco de questões em 1 ÚNICA query SQL!
 func GetUserSoloStats(db *gorm.DB, userID uint) (ProgressStats, error) {
 	var stats ProgressStats
 
-	db.Model(&models.Question{}).Count(&stats.TotalQuestions)
-	db.Model(&models.Question{}).Where("category = ?", models.CategoryGeneral).Count(&stats.TotalGeneral)
-	db.Model(&models.Question{}).Where("category = ?", models.CategorySpecific).Count(&stats.TotalSpecific)
+	err := db.Raw(`
+		SELECT
+			COUNT(q.id) AS total_questions,
+			COUNT(q.id) FILTER (WHERE q.category = 'general') AS total_general,
+			COUNT(q.id) FILTER (WHERE q.category = 'specific') AS total_specific,
+			COUNT(q.id) FILTER (WHERE uqp.answered_correctly_in_cycle = true) AS mastered_in_cycle,
+			COUNT(q.id) FILTER (WHERE uqp.answered_correctly_in_cycle = true AND q.category = 'general') AS mastered_general_cycle,
+			COUNT(q.id) FILTER (WHERE uqp.answered_correctly_in_cycle = true AND q.category = 'specific') AS mastered_specific_cycle,
+			COUNT(q.id) FILTER (WHERE uqp.mastered_ever = true) AS unique_mastered_ever,
+			COALESCE((SELECT cycle_count FROM users WHERE id = ?), 0) AS cycle_count
+		FROM questions q
+		LEFT JOIN user_question_progresses uqp
+			ON uqp.question_id = q.id AND uqp.user_id = ?
+	`, userID, userID).Scan(&stats).Error
 
-	// Acertos no ciclo atual (apenas de questões que ainda existem no banco)
-	db.Table("user_question_progresses uqp").
-		Joins("JOIN questions q ON q.id = uqp.question_id").
-		Where("uqp.user_id = ? AND uqp.answered_correctly_in_cycle = ?", userID, true).
-		Count(&stats.MasteredInCycle)
-
-	db.Table("user_question_progresses uqp").
-		Joins("JOIN questions q ON q.id = uqp.question_id").
-		Where("uqp.user_id = ? AND uqp.answered_correctly_in_cycle = ? AND q.category = ?", userID, true, models.CategoryGeneral).
-		Count(&stats.MasteredGeneralCycle)
-
-	db.Table("user_question_progresses uqp").
-		Joins("JOIN questions q ON q.id = uqp.question_id").
-		Where("uqp.user_id = ? AND uqp.answered_correctly_in_cycle = ? AND q.category = ?", userID, true, models.CategorySpecific).
-		Count(&stats.MasteredSpecificCycle)
-
-	// Acertos únicos históricos (Ranking Global)
-	db.Table("user_question_progresses uqp").
-		Joins("JOIN questions q ON q.id = uqp.question_id").
-		Where("uqp.user_id = ? AND uqp.mastered_ever = ?", userID, true).
-		Count(&stats.UniqueMasteredEver)
+	if err != nil {
+		return stats, err
+	}
 
 	stats.PendingGeneral = stats.TotalGeneral - stats.MasteredGeneralCycle
 	if stats.PendingGeneral < 0 {
@@ -72,59 +63,24 @@ func GetUserSoloStats(db *gorm.DB, userID uint) (ProgressStats, error) {
 		stats.PendingSpecific = 0
 	}
 
-	var user models.User
-	if err := db.Select("cycle_count").First(&user, userID).Error; err == nil {
-		stats.CycleCount = user.CycleCount
-	}
-
 	return stats, nil
 }
 
-// SelectNextSoloQuestion escolhe a próxima pergunta para o Modo Solo respeitando:
-// 1. Não repetir perguntas já respondidas corretamente no ciclo atual.
-// 2. Ordem estrita: primeiro todas as Gerais ("general"), depois as Específicas ("specific").
-// 3. Se todas as perguntas foram acertadas, reinicia o ciclo (replay) automaticamente.
+// SelectNextSoloQuestion escolhe a próxima pergunta para o Modo Solo com o mínimo de round-trips ao PostgreSQL:
+// 1 query agregada de estatísticas + 1 query "ORDER BY RANDOM() LIMIT 1" que traz apenas 1 questão!
 func SelectNextSoloQuestion(db *gorm.DB, userID uint) (*NextQuestionResult, error) {
-	var totalQuestions int64
-	if err := db.Model(&models.Question{}).Count(&totalQuestions).Error; err != nil {
+	stats, err := GetUserSoloStats(db, userID)
+	if err != nil {
 		return nil, err
 	}
-	if totalQuestions == 0 {
+	if stats.TotalQuestions == 0 {
 		return nil, ErrNoQuestionsInBank
 	}
 
 	cycleRestarted := false
 
-	// Função auxiliar que busca questões pendentes de uma categoria para o usuário
-	findPendingByCategory := func(category string) ([]models.Question, error) {
-		var questions []models.Question
-		subQuery := db.Model(&models.UserQuestionProgress{}).
-			Select("question_id").
-			Where("user_id = ? AND answered_correctly_in_cycle = ?", userID, true)
-
-		err := db.Where("category = ? AND id NOT IN (?)", category, subQuery).
-			Find(&questions).Error
-		return questions, err
-	}
-
-	// 1. Tenta buscar questões GERAIS pendentes
-	candidates, err := findPendingByCategory(models.CategoryGeneral)
-	if err != nil {
-		return nil, err
-	}
-	activePhase := models.CategoryGeneral
-
-	// 2. Se não há Gerais pendentes, busca ESPECÍFICAS pendentes
-	if len(candidates) == 0 {
-		candidates, err = findPendingByCategory(models.CategorySpecific)
-		if err != nil {
-			return nil, err
-		}
-		activePhase = models.CategorySpecific
-	}
-
-	// 3. Se não há nem Gerais nem Específicas pendentes -> Usuário GABARITOU o banco! Reinicia ciclo.
-	if len(candidates) == 0 {
+	// Se não há nem Gerais nem Específicas pendentes -> Usuário GABARITOU o banco! Reinicia ciclo.
+	if stats.PendingGeneral == 0 && stats.PendingSpecific == 0 {
 		cycleRestarted = true
 		err := db.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&models.UserQuestionProgress{}).
@@ -140,59 +96,70 @@ func SelectNextSoloQuestion(db *gorm.DB, userID uint) (*NextQuestionResult, erro
 			return nil, err
 		}
 
-		// Busca novamente começando pelas Gerais
-		candidates, err = findPendingByCategory(models.CategoryGeneral)
-		if err != nil {
-			return nil, err
-		}
-		activePhase = models.CategoryGeneral
-
-		if len(candidates) == 0 {
-			candidates, err = findPendingByCategory(models.CategorySpecific)
-			if err != nil {
-				return nil, err
-			}
-			activePhase = models.CategorySpecific
-		}
+		// Atualiza estatísticas em memória sem precisar de outra viagem ao banco
+		stats.MasteredInCycle = 0
+		stats.MasteredGeneralCycle = 0
+		stats.MasteredSpecificCycle = 0
+		stats.PendingGeneral = stats.TotalGeneral
+		stats.PendingSpecific = stats.TotalSpecific
+		stats.CycleCount++
 	}
 
-	if len(candidates) == 0 {
+	// Ordem estrita: 1º Gerais -> 2º Específicas
+	targetCategory := models.CategoryGeneral
+	if stats.PendingGeneral == 0 {
+		targetCategory = models.CategorySpecific
+	}
+
+	var selected models.Question
+	err = db.Raw(`
+		SELECT q.*
+		FROM questions q
+		LEFT JOIN user_question_progresses uqp
+			ON uqp.question_id = q.id AND uqp.user_id = ?
+		WHERE q.category = ?
+		  AND COALESCE(uqp.answered_correctly_in_cycle, false) = false
+		ORDER BY RANDOM()
+		LIMIT 1
+	`, userID, targetCategory).Scan(&selected).Error
+
+	if err != nil {
+		return nil, err
+	}
+	if selected.ID == 0 {
 		return nil, ErrNoQuestionsInBank
 	}
-
-	selected := pickRandomQuestion(candidates)
-	stats, _ := GetUserSoloStats(db, userID)
 
 	return &NextQuestionResult{
 		Question:       &selected,
 		CycleRestarted: cycleRestarted,
-		ActivePhase:    activePhase,
+		ActivePhase:    targetCategory,
 		Stats:          stats,
 	}, nil
 }
 
-// GetTeamArenaStats calcula o progresso exclusivo da Equipe/Sala no Modo Arena.
+// GetTeamArenaStats calcula o progresso exclusivo da Equipe/Sala no Modo Arena em 1 ÚNICA query SQL!
 func GetTeamArenaStats(db *gorm.DB, teamID uint) (ProgressStats, error) {
 	var stats ProgressStats
 
-	db.Model(&models.Question{}).Count(&stats.TotalQuestions)
-	db.Model(&models.Question{}).Where("category = ?", models.CategoryGeneral).Count(&stats.TotalGeneral)
-	db.Model(&models.Question{}).Where("category = ?", models.CategorySpecific).Count(&stats.TotalSpecific)
+	err := db.Raw(`
+		SELECT
+			COUNT(q.id) AS total_questions,
+			COUNT(q.id) FILTER (WHERE q.category = 'general') AS total_general,
+			COUNT(q.id) FILTER (WHERE q.category = 'specific') AS total_specific,
+			COUNT(q.id) FILTER (WHERE atqp.answered_correctly_in_cycle = true) AS mastered_in_cycle,
+			COUNT(q.id) FILTER (WHERE atqp.answered_correctly_in_cycle = true AND q.category = 'general') AS mastered_general_cycle,
+			COUNT(q.id) FILTER (WHERE atqp.answered_correctly_in_cycle = true AND q.category = 'specific') AS mastered_specific_cycle,
+			COUNT(q.id) FILTER (WHERE atqp.mastered_ever = true) AS unique_mastered_ever,
+			COALESCE((SELECT cycle_count FROM arena_teams WHERE id = ?), 0) AS cycle_count
+		FROM questions q
+		LEFT JOIN arena_team_question_progresses atqp
+			ON atqp.question_id = q.id AND atqp.team_id = ?
+	`, teamID, teamID).Scan(&stats).Error
 
-	db.Table("arena_team_question_progresses atqp").
-		Joins("JOIN questions q ON q.id = atqp.question_id").
-		Where("atqp.team_id = ? AND atqp.answered_correctly_in_cycle = ?", teamID, true).
-		Count(&stats.MasteredInCycle)
-
-	db.Table("arena_team_question_progresses atqp").
-		Joins("JOIN questions q ON q.id = atqp.question_id").
-		Where("atqp.team_id = ? AND atqp.answered_correctly_in_cycle = ? AND q.category = ?", teamID, true, models.CategoryGeneral).
-		Count(&stats.MasteredGeneralCycle)
-
-	db.Table("arena_team_question_progresses atqp").
-		Joins("JOIN questions q ON q.id = atqp.question_id").
-		Where("atqp.team_id = ? AND atqp.answered_correctly_in_cycle = ? AND q.category = ?", teamID, true, models.CategorySpecific).
-		Count(&stats.MasteredSpecificCycle)
+	if err != nil {
+		return stats, err
+	}
 
 	stats.PendingGeneral = stats.TotalGeneral - stats.MasteredGeneralCycle
 	if stats.PendingGeneral < 0 {
@@ -203,56 +170,23 @@ func GetTeamArenaStats(db *gorm.DB, teamID uint) (ProgressStats, error) {
 		stats.PendingSpecific = 0
 	}
 
-	var team models.ArenaTeam
-	if err := db.Select("cycle_count").First(&team, teamID).Error; err == nil {
-		stats.CycleCount = team.CycleCount
-	}
-
 	return stats, nil
 }
 
-// SelectNextTeamQuestion escolhe a próxima pergunta para a Equipe/Sala no Modo Arena,
-// mantendo progresso próprio da sala (todos começam zerados na sala) e seguindo Gerais -> Específicas.
+// SelectNextTeamQuestion escolhe a próxima pergunta para a Equipe/Sala no Modo Arena em apenas 2 queries SQL.
 func SelectNextTeamQuestion(db *gorm.DB, teamID uint) (*NextQuestionResult, error) {
-	var totalQuestions int64
-	if err := db.Model(&models.Question{}).Count(&totalQuestions).Error; err != nil {
+	stats, err := GetTeamArenaStats(db, teamID)
+	if err != nil {
 		return nil, err
 	}
-	if totalQuestions == 0 {
+	if stats.TotalQuestions == 0 {
 		return nil, ErrNoQuestionsInBank
 	}
 
 	cycleRestarted := false
 
-	findPendingByCategory := func(category string) ([]models.Question, error) {
-		var questions []models.Question
-		subQuery := db.Model(&models.ArenaTeamQuestionProgress{}).
-			Select("question_id").
-			Where("team_id = ? AND answered_correctly_in_cycle = ?", teamID, true)
-
-		err := db.Where("category = ? AND id NOT IN (?)", category, subQuery).
-			Find(&questions).Error
-		return questions, err
-	}
-
-	// 1. Busca Gerais pendentes para a equipe
-	candidates, err := findPendingByCategory(models.CategoryGeneral)
-	if err != nil {
-		return nil, err
-	}
-	activePhase := models.CategoryGeneral
-
-	// 2. Se esgotou Gerais na equipe, busca Específicas pendentes
-	if len(candidates) == 0 {
-		candidates, err = findPendingByCategory(models.CategorySpecific)
-		if err != nil {
-			return nil, err
-		}
-		activePhase = models.CategorySpecific
-	}
-
-	// 3. Se a equipe gabaritou todas as Gerais e Específicas -> Reinicia o ciclo da equipe!
-	if len(candidates) == 0 {
+	// Se a equipe gabaritou todas as Gerais e Específicas -> Reinicia o ciclo da equipe!
+	if stats.PendingGeneral == 0 && stats.PendingSpecific == 0 {
 		cycleRestarted = true
 		err := db.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&models.ArenaTeamQuestionProgress{}).
@@ -268,37 +202,42 @@ func SelectNextTeamQuestion(db *gorm.DB, teamID uint) (*NextQuestionResult, erro
 			return nil, err
 		}
 
-		candidates, err = findPendingByCategory(models.CategoryGeneral)
-		if err != nil {
-			return nil, err
-		}
-		activePhase = models.CategoryGeneral
-
-		if len(candidates) == 0 {
-			candidates, err = findPendingByCategory(models.CategorySpecific)
-			if err != nil {
-				return nil, err
-			}
-			activePhase = models.CategorySpecific
-		}
+		stats.MasteredInCycle = 0
+		stats.MasteredGeneralCycle = 0
+		stats.MasteredSpecificCycle = 0
+		stats.PendingGeneral = stats.TotalGeneral
+		stats.PendingSpecific = stats.TotalSpecific
+		stats.CycleCount++
 	}
 
-	if len(candidates) == 0 {
+	targetCategory := models.CategoryGeneral
+	if stats.PendingGeneral == 0 {
+		targetCategory = models.CategorySpecific
+	}
+
+	var selected models.Question
+	err = db.Raw(`
+		SELECT q.*
+		FROM questions q
+		LEFT JOIN arena_team_question_progresses atqp
+			ON atqp.question_id = q.id AND atqp.team_id = ?
+		WHERE q.category = ?
+		  AND COALESCE(atqp.answered_correctly_in_cycle, false) = false
+		ORDER BY RANDOM()
+		LIMIT 1
+	`, teamID, targetCategory).Scan(&selected).Error
+
+	if err != nil {
+		return nil, err
+	}
+	if selected.ID == 0 {
 		return nil, ErrNoQuestionsInBank
 	}
-
-	selected := pickRandomQuestion(candidates)
-	stats, _ := GetTeamArenaStats(db, teamID)
 
 	return &NextQuestionResult{
 		Question:       &selected,
 		CycleRestarted: cycleRestarted,
-		ActivePhase:    activePhase,
+		ActivePhase:    targetCategory,
 		Stats:          stats,
 	}, nil
-}
-
-func pickRandomQuestion(candidates []models.Question) models.Question {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return candidates[r.Intn(len(candidates))]
 }

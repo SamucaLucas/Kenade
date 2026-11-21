@@ -479,16 +479,17 @@ func validateAndBuildQuestion(category, statement, optA, optB, optC, optD, corre
 // ============================================================================
 
 func (s *Server) HandleSoloNext(w http.ResponseWriter, r *http.Request) {
-	user, err := s.currentUser(r)
+	// Usa os claims assinados do token diretamente para evitar um SELECT extra na tabela users
+	claims, err := auth.ExtractClaimsFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "Não autenticado")
 		return
 	}
 
-	res, err := quiz.SelectNextSoloQuestion(s.DB, user.ID)
+	res, err := quiz.SelectNextSoloQuestion(s.DB, claims.UserID)
 	if err != nil {
 		if errors.Is(err, quiz.ErrNoQuestionsInBank) {
-			stats, _ := quiz.GetUserSoloStats(s.DB, user.ID)
+			stats, _ := quiz.GetUserSoloStats(s.DB, claims.UserID)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"empty": true,
 				"stats": stats,
@@ -518,7 +519,7 @@ func (s *Server) HandleSoloAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.currentUser(r)
+	claims, err := auth.ExtractClaimsFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "Não autenticado")
 		return
@@ -535,22 +536,19 @@ func (s *Server) HandleSoloAnswer(w http.ResponseWriter, r *http.Request) {
 	req.SelectedOption = strings.ToUpper(strings.TrimSpace(req.SelectedOption))
 
 	var question models.Question
-	if err := s.DB.First(&question, req.QuestionID).Error; err != nil {
+	if err := s.DB.Select("id, correct_option, explanation").First(&question, req.QuestionID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Questão não encontrada")
 		return
 	}
 
 	isCorrect := req.SelectedOption == question.CorrectOption
 
-	err = s.DB.Transaction(func(tx *gorm.DB) error {
-		return recordUserQuestionProgress(tx, user.ID, question.ID, isCorrect, true)
-	})
-	if err != nil {
+	if err := recordUserQuestionProgress(s.DB, claims.UserID, question.ID, isCorrect, true); err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro ao registrar resposta")
 		return
 	}
 
-	stats, _ := quiz.GetUserSoloStats(s.DB, user.ID)
+	stats, _ := quiz.GetUserSoloStats(s.DB, claims.UserID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"is_correct":      isCorrect,
 		"selected_option": req.SelectedOption,
@@ -560,52 +558,43 @@ func (s *Server) HandleSoloAnswer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// recordUserQuestionProgress executa um UPSERT atômico no PostgreSQL (ON CONFLICT) em vez de SELECT + INSERT/UPDATE!
 func recordUserQuestionProgress(tx *gorm.DB, userID, questionID uint, isCorrect bool, updateSoloCycle bool) error {
-	var prog models.UserQuestionProgress
-	err := tx.Where("user_id = ? AND question_id = ?", userID, questionID).First(&prog).Error
 	now := time.Now()
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		prog = models.UserQuestionProgress{
-			UserID:                   userID,
-			QuestionID:               questionID,
-			MasteredEver:             isCorrect,
-			AnsweredCorrectlyInCycle: isCorrect && updateSoloCycle,
-			LastAnsweredAt:           now,
-		}
-		if isCorrect {
-			prog.TimesCorrect = 1
-		} else {
-			prog.TimesWrong = 1
-		}
-		if err := tx.Create(&prog).Error; err != nil {
-			return err
-		}
-	} else if err == nil {
-		prog.LastAnsweredAt = now
-		if isCorrect {
-			prog.MasteredEver = true
-			if updateSoloCycle {
-				prog.AnsweredCorrectlyInCycle = true
-			}
-			prog.TimesCorrect++
-		} else {
-			prog.TimesWrong++
-		}
-		if err := tx.Save(&prog).Error; err != nil {
-			return err
-		}
+	incCorrect := 0
+	incWrong := 0
+	if isCorrect {
+		incCorrect = 1
 	} else {
+		incWrong = 1
+	}
+	cycleVal := isCorrect && updateSoloCycle
+
+	err := tx.Exec(`
+		INSERT INTO user_question_progresses
+			(user_id, question_id, mastered_ever, answered_correctly_in_cycle, times_correct, times_wrong, last_answered_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (user_id, question_id) DO UPDATE SET
+			mastered_ever = user_question_progresses.mastered_ever OR EXCLUDED.mastered_ever,
+			answered_correctly_in_cycle = CASE
+				WHEN ? THEN (user_question_progresses.answered_correctly_in_cycle OR EXCLUDED.answered_correctly_in_cycle)
+				ELSE user_question_progresses.answered_correctly_in_cycle
+			END,
+			times_correct = user_question_progresses.times_correct + EXCLUDED.times_correct,
+			times_wrong = user_question_progresses.times_wrong + EXCLUDED.times_wrong,
+			last_answered_at = EXCLUDED.last_answered_at
+	`, userID, questionID, isCorrect, cycleVal, incCorrect, incWrong, now, updateSoloCycle).Error
+	if err != nil {
 		return err
 	}
 
-	updates := map[string]any{
-		"total_answered": gorm.Expr("total_answered + 1"),
-	}
-	if isCorrect {
-		updates["total_correct"] = gorm.Expr("total_correct + 1")
-	}
-	return tx.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error
+	return tx.Exec(`
+		UPDATE users
+		SET total_answered = total_answered + 1,
+		    total_correct = total_correct + ?,
+		    updated_at = ?
+		WHERE id = ?
+	`, incCorrect, now, userID).Error
 }
 
 // ============================================================================
@@ -640,8 +629,7 @@ type TeamRankingEntry struct {
 }
 
 func (s *Server) HandleRanking(w http.ResponseWriter, r *http.Request) {
-	_, err := s.currentUser(r)
-	if err != nil {
+	if _, err := auth.ExtractClaimsFromRequest(r); err != nil {
 		writeError(w, http.StatusUnauthorized, "Não autenticado")
 		return
 	}
@@ -649,7 +637,7 @@ func (s *Server) HandleRanking(w http.ResponseWriter, r *http.Request) {
 	var totalQuestions int64
 	s.DB.Model(&models.Question{}).Count(&totalQuestions)
 
-	// 1. Ranking Individual de Jogadores
+	// 1. Ranking Individual de Jogadores (1 query agregada)
 	type rawRow struct {
 		UserID        uint
 		Name          string
@@ -662,7 +650,7 @@ func (s *Server) HandleRanking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rows []rawRow
-	err = s.DB.Table("users u").
+	err := s.DB.Table("users u").
 		Select(`u.id as user_id, u.name, u.username, u.role, u.total_correct, u.total_answered, u.cycle_count,
 			COUNT(CASE WHEN uqp.mastered_ever = true AND q.id IS NOT NULL THEN 1 END) as unique_correct`).
 		Joins("LEFT JOIN user_question_progresses uqp ON uqp.user_id = u.id").
@@ -696,24 +684,34 @@ func (s *Server) HandleRanking(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 2. Ranking Exclusivo de Equipes (usando o nome da equipe)
+	// 2. Ranking Exclusivo de Equipes (Sem N+1 queries! Tudo agregado de uma vez)
 	var teams []models.ArenaTeam
 	s.DB.Preload("Host").Preload("Members.User").Find(&teams)
 
+	type teamProgAgg struct {
+		TeamID        uint
+		UniqueCorrect int64
+		TotalCorrect  int64
+	}
+	var progAggs []teamProgAgg
+	s.DB.Raw(`
+		SELECT
+			atqp.team_id,
+			COUNT(q.id) FILTER (WHERE atqp.mastered_ever = true OR atqp.answered_correctly_in_cycle = true OR atqp.times_correct > 0) AS unique_correct,
+			COALESCE(SUM(atqp.times_correct), 0) AS total_correct
+		FROM arena_team_question_progresses atqp
+		JOIN questions q ON q.id = atqp.question_id
+		GROUP BY atqp.team_id
+	`).Scan(&progAggs)
+
+	aggByTeam := make(map[uint]teamProgAgg, len(progAggs))
+	for _, a := range progAggs {
+		aggByTeam[a.TeamID] = a
+	}
+
 	teamRanking := make([]TeamRankingEntry, 0, len(teams))
 	for _, t := range teams {
-		var uniqueCorrect int64
-		s.DB.Table("arena_team_question_progresses atqp").
-			Joins("JOIN questions q ON q.id = atqp.question_id").
-			Where("atqp.team_id = ? AND (atqp.mastered_ever = ? OR atqp.answered_correctly_in_cycle = ? OR atqp.times_correct > 0)", t.ID, true, true).
-			Count(&uniqueCorrect)
-
-		var totalCorrect int64
-		s.DB.Table("arena_team_question_progresses").
-			Where("team_id = ?", t.ID).
-			Select("COALESCE(SUM(times_correct), 0)").
-			Scan(&totalCorrect)
-
+		agg := aggByTeam[t.ID]
 		var totalScore int64
 		membersList := make([]string, 0, len(t.Members))
 		for _, m := range t.Members {
@@ -735,8 +733,8 @@ func (s *Server) HandleRanking(w http.ResponseWriter, r *http.Request) {
 			HostName:      hostName,
 			MemberCount:   len(t.Members),
 			MembersList:   membersList,
-			UniqueCorrect: uniqueCorrect,
-			TotalCorrect:  totalCorrect,
+			UniqueCorrect: agg.UniqueCorrect,
+			TotalCorrect:  agg.TotalCorrect,
 			TotalScore:    totalScore,
 			CycleCount:    t.CycleCount,
 		})
@@ -796,6 +794,49 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 			Order("updated_at DESC").
 			Find(&teams)
 
+		// Busca contagens globais de questões e estatísticas de todas as equipes em lote (sem N+1 queries!)
+		var qTotals struct {
+			TotalQuestions int64
+			TotalGeneral   int64
+			TotalSpecific  int64
+		}
+		s.DB.Raw(`
+			SELECT
+				COUNT(id) AS total_questions,
+				COUNT(id) FILTER (WHERE category = 'general') AS total_general,
+				COUNT(id) FILTER (WHERE category = 'specific') AS total_specific
+			FROM questions
+		`).Scan(&qTotals)
+
+		type teamCycleAgg struct {
+			TeamID                uint
+			MasteredInCycle       int64
+			MasteredGeneralCycle  int64
+			MasteredSpecificCycle int64
+		}
+		var cycleAggs []teamCycleAgg
+		if len(teams) > 0 {
+			teamIDs := make([]uint, 0, len(teams))
+			for _, t := range teams {
+				teamIDs = append(teamIDs, t.ID)
+			}
+			s.DB.Raw(`
+				SELECT
+					atqp.team_id,
+					COUNT(q.id) FILTER (WHERE atqp.answered_correctly_in_cycle = true) AS mastered_in_cycle,
+					COUNT(q.id) FILTER (WHERE atqp.answered_correctly_in_cycle = true AND q.category = 'general') AS mastered_general_cycle,
+					COUNT(q.id) FILTER (WHERE atqp.answered_correctly_in_cycle = true AND q.category = 'specific') AS mastered_specific_cycle
+				FROM arena_team_question_progresses atqp
+				JOIN questions q ON q.id = atqp.question_id
+				WHERE atqp.team_id IN ?
+				GROUP BY atqp.team_id
+			`, teamIDs).Scan(&cycleAggs)
+		}
+		aggMap := make(map[uint]teamCycleAgg, len(cycleAggs))
+		for _, a := range cycleAggs {
+			aggMap[a.TeamID] = a
+		}
+
 		type teamSummary struct {
 			models.ArenaTeam
 			IsHost bool               `json:"is_host"`
@@ -803,7 +844,18 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 		}
 		result := make([]teamSummary, 0, len(teams))
 		for _, t := range teams {
-			st, _ := quiz.GetTeamArenaStats(s.DB, t.ID)
+			a := aggMap[t.ID]
+			st := quiz.ProgressStats{
+				TotalQuestions:        qTotals.TotalQuestions,
+				TotalGeneral:          qTotals.TotalGeneral,
+				TotalSpecific:         qTotals.TotalSpecific,
+				MasteredInCycle:       a.MasteredInCycle,
+				MasteredGeneralCycle:  a.MasteredGeneralCycle,
+				MasteredSpecificCycle: a.MasteredSpecificCycle,
+				PendingGeneral:        qTotals.TotalGeneral - a.MasteredGeneralCycle,
+				PendingSpecific:       qTotals.TotalSpecific - a.MasteredSpecificCycle,
+				CycleCount:            t.CycleCount,
+			}
 			result = append(result, teamSummary{
 				ArenaTeam: t,
 				IsHost:    t.HostID == user.ID,

@@ -101,8 +101,12 @@ func main() {
 		log.Fatal("ERRO: Variável de ambiente DATABASE_URL não definida. Configure DATABASE_URL no arquivo .env ou no painel do Render com a URL do seu PostgreSQL online.")
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  dsn,
+		PreferSimpleProtocol: true, // Evita round-trip extra de Parse/Bind em cada query em bancos PostgreSQL na nuvem
+	}), &gorm.Config{
+		Logger:                 logger.Default.LogMode(logger.Warn),
+		SkipDefaultTransaction: true, // Evita BEGIN/COMMIT desnecessários em escritas simples
 	})
 	if err != nil {
 		log.Fatalf("Erro ao conectar ao PostgreSQL via GORM: %v", err)
@@ -110,7 +114,7 @@ func main() {
 
 	sqlDB, err := db.DB()
 	if err == nil {
-		sqlDB.SetMaxIdleConns(5)
+		sqlDB.SetMaxIdleConns(10)
 		sqlDB.SetMaxOpenConns(25)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
@@ -119,7 +123,11 @@ func main() {
 	if err := models.AutoMigrate(db); err != nil {
 		log.Fatalf("Erro ao executar AutoMigrate: %v", err)
 	}
-	log.Println("Tabelas sincronizadas com sucesso via GORM AutoMigrate!")
+	// Índices compostos para deixar as buscas do Modo Solo, Arena e Ranking instantâneas
+	_ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_uqp_user_cycle ON user_question_progresses (user_id, answered_correctly_in_cycle)`).Error
+	_ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_uqp_user_mastered ON user_question_progresses (user_id, mastered_ever)`).Error
+	_ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_atqp_team_cycle ON arena_team_question_progresses (team_id, answered_correctly_in_cycle)`).Error
+	log.Println("Tabelas e índices sincronizados com sucesso via GORM AutoMigrate!")
 
 	hub := ws.NewHub()
 	srv := handlers.NewServer(db, hub)
@@ -165,6 +173,7 @@ func main() {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		http.ServeFile(w, r, "./web/login.html")
 	})
+	mux.HandleFunc("/arena", serveProtectedPage("./web/arena.html"))
 	mux.HandleFunc("/solo", serveProtectedPage("./web/solo.html"))
 	mux.HandleFunc("/questions", serveAdminPage(db, "./web/questions.html"))
 	mux.HandleFunc("/ranking", serveProtectedPage("./web/ranking.html"))

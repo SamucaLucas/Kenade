@@ -202,8 +202,29 @@ async function initAuthenticatedPage(activeNavId) {
     if (activeLink) activeLink.classList.add('active');
   }
 
+  // Renderiza o cabeçalho instantaneamente (0ms) usando cache da sessão enquanto valida em background
+  try {
+    const cached = sessionStorage.getItem('kenade_user_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.user) {
+        applyUserToHeader(parsed.user, activeNavId);
+      }
+    }
+  } catch {}
+
   const data = await apiFetch('/api/auth/me');
-  const isAdmin = data.user && data.user.role === 'admin';
+  try {
+    sessionStorage.setItem('kenade_user_cache', JSON.stringify(data));
+  } catch {}
+
+  applyUserToHeader(data.user, activeNavId);
+  return data;
+}
+
+function applyUserToHeader(user, activeNavId) {
+  if (!user) return;
+  const isAdmin = user.role === 'admin';
 
   // Injeta automaticamente a aba lateral (Drawer) para celular nas páginas com .app-header
   const headerInner = document.querySelector('.app-header .header-inner');
@@ -230,13 +251,14 @@ async function initAuthenticatedPage(activeNavId) {
               <img src="/favicon.svg" alt="Logo Kenade" width="34" height="34" style="border-radius: 8px;" />
               <div>
                 <div style="font-weight: 900; font-size: 1.15rem;">KENADE</div>
-                <div style="font-size: 0.78rem; opacity: 0.9;">${escapeHTML(data.user.name)} (@${escapeHTML(data.user.username)})</div>
+                <div style="font-size: 0.78rem; opacity: 0.9;">${escapeHTML(user.name)} (@${escapeHTML(user.username)})</div>
               </div>
             </div>
             <button type="button" class="nav-btn drawer-close-btn" aria-label="Fechar menu" autofocus>✕</button>
           </div>
           <ul class="drawer-menu-list">
-            <li><a class="drawer-menu-link ${activeNavId === 'dashboard' ? 'active' : ''}" href="/">🏠 Início &amp; Salas</a></li>
+            <li><a class="drawer-menu-link ${activeNavId === 'dashboard' ? 'active' : ''}" href="/">🏠 Início &amp; Guia</a></li>
+            <li><a class="drawer-menu-link ${activeNavId === 'arena' ? 'active' : ''}" href="/arena">🎮 Salas Arena (Equipes)</a></li>
             <li><a class="drawer-menu-link ${activeNavId === 'solo' ? 'active' : ''}" href="/solo">📱 Estudo Solo (Celular)</a></li>
             <li><a class="drawer-menu-link ${activeNavId === 'ranking' ? 'active' : ''}" href="/ranking">🏆 Rankings</a></li>
             ${isAdmin ? `<li><a class="drawer-menu-link ${activeNavId === 'questions' ? 'active' : ''}" href="/questions">⚙️ Banco de Questões</a></li>` : ''}
@@ -253,6 +275,7 @@ async function initAuthenticatedPage(activeNavId) {
     drawer.querySelector('#drawer-logout-btn').addEventListener('click', async () => {
       await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
       localStorage.removeItem('kenade_token');
+      sessionStorage.removeItem('kenade_user_cache');
       window.location.href = '/login';
     });
 
@@ -266,12 +289,11 @@ async function initAuthenticatedPage(activeNavId) {
 
   const userNameEl = document.getElementById('header-user-name');
   const userRoleEl = document.getElementById('header-user-role');
-  if (userNameEl) userNameEl.textContent = data.user.name;
+  if (userNameEl) userNameEl.textContent = user.name;
   if (userRoleEl) {
     userRoleEl.textContent = isAdmin ? 'ADMIN' : 'JOGADOR';
-    userRoleEl.className = `role-tag ${data.user.role}`;
+    userRoleEl.className = `role-tag ${user.role}`;
   }
-  return data;
 }
 
 // Inicializa um Combobox de Pesquisa por @username

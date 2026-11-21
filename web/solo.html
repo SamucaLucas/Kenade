@@ -24,8 +24,9 @@
       </a>
 
       <nav class="nav-links" aria-label="Navegação principal">
-        <a class="nav-btn" data-nav="dashboard" href="/">Início &amp; Salas</a>
-        <a class="nav-btn" data-nav="solo" href="/solo">Estudo Solo (Celular)</a>
+        <a class="nav-btn" data-nav="dashboard" href="/">Início</a>
+        <a class="nav-btn" data-nav="arena" href="/arena">Salas Arena</a>
+        <a class="nav-btn" data-nav="solo" href="/solo">Estudo Solo</a>
         <a class="nav-btn" data-nav="ranking" href="/ranking">Rankings</a>
         <!-- Oculto para jogadores comuns -->
         <a class="nav-btn hidden admin-only" data-nav="questions" href="/questions">Banco de Questões</a>
@@ -106,57 +107,65 @@
   <script>
     let currentQuestion = null;
     let isAnswered = false;
+    let prefetchedNextPromise = null;
+
+    function renderQuestionPayload(data) {
+      const emptyEl = document.getElementById('solo-empty-state');
+      const qContainer = document.getElementById('solo-question-container');
+      const replayBanner = document.getElementById('solo-replay-banner');
+
+      if (data.empty || !data.question) {
+        emptyEl.classList.remove('hidden');
+        qContainer.classList.add('hidden');
+        replayBanner.classList.add('hidden');
+        return;
+      }
+
+      emptyEl.classList.add('hidden');
+      qContainer.classList.remove('hidden');
+      replayBanner.classList.toggle('hidden', !data.cycle_restarted);
+
+      currentQuestion = data.question;
+      isAnswered = false;
+
+      const catBadge = document.getElementById('solo-category-badge');
+      if (data.question.category === 'general') {
+        catBadge.textContent = '1ª Etapa: Pergunta Geral';
+        catBadge.className = 'category-badge general';
+      } else {
+        catBadge.textContent = '2ª Etapa: Pergunta Específica';
+        catBadge.className = 'category-badge specific';
+      }
+
+      const st = data.stats;
+      const pct = st.total_questions > 0 ? Math.round((st.mastered_in_cycle / st.total_questions) * 100) : 0;
+      document.getElementById('solo-cycle-badge').textContent = `Ciclo #${st.cycle_count}`;
+      document.getElementById('solo-counter-text').textContent =
+        `Ciclo: ${st.mastered_in_cycle}/${st.total_questions} (1º Gerais: ${st.mastered_general_cycle}/${st.total_general} • 2º Específicas: ${st.mastered_specific_cycle}/${st.total_specific})`;
+      document.getElementById('solo-progress-bar').style.width = `${pct}%`;
+
+      document.getElementById('solo-statement').textContent = data.question.statement;
+      document.getElementById('solo-opt-A').textContent = data.question.option_a;
+      document.getElementById('solo-opt-B').textContent = data.question.option_b;
+      document.getElementById('solo-opt-C').textContent = data.question.option_c;
+      document.getElementById('solo-opt-D').textContent = data.question.option_d;
+
+      for (const btn of document.querySelectorAll('#solo-options-grid .option-btn')) {
+        btn.disabled = false;
+        btn.classList.remove('selected-option', 'correct-reveal', 'wrong-reveal', 'dimmed-reveal');
+      }
+
+      document.getElementById('solo-feedback-box').classList.add('hidden');
+      document.getElementById('solo-next-btn').classList.add('hidden');
+    }
 
     async function loadNextQuestion() {
       try {
-        const data = await apiFetch('/api/solo/next');
-        const emptyEl = document.getElementById('solo-empty-state');
-        const qContainer = document.getElementById('solo-question-container');
-        const replayBanner = document.getElementById('solo-replay-banner');
-
-        if (data.empty || !data.question) {
-          emptyEl.classList.remove('hidden');
-          qContainer.classList.add('hidden');
-          replayBanner.classList.add('hidden');
-          return;
-        }
-
-        emptyEl.classList.add('hidden');
-        qContainer.classList.remove('hidden');
-        replayBanner.classList.toggle('hidden', !data.cycle_restarted);
-
-        currentQuestion = data.question;
-        isAnswered = false;
-
-        const catBadge = document.getElementById('solo-category-badge');
-        if (data.question.category === 'general') {
-          catBadge.textContent = '1ª Etapa: Pergunta Geral';
-          catBadge.className = 'category-badge general';
-        } else {
-          catBadge.textContent = '2ª Etapa: Pergunta Específica';
-          catBadge.className = 'category-badge specific';
-        }
-
-        const st = data.stats;
-        const pct = st.total_questions > 0 ? Math.round((st.mastered_in_cycle / st.total_questions) * 100) : 0;
-        document.getElementById('solo-cycle-badge').textContent = `Ciclo #${st.cycle_count}`;
-        document.getElementById('solo-counter-text').textContent =
-          `Ciclo: ${st.mastered_in_cycle}/${st.total_questions} (1º Gerais: ${st.mastered_general_cycle}/${st.total_general} • 2º Específicas: ${st.mastered_specific_cycle}/${st.total_specific})`;
-        document.getElementById('solo-progress-bar').style.width = `${pct}%`;
-
-        document.getElementById('solo-statement').textContent = data.question.statement;
-        document.getElementById('solo-opt-A').textContent = data.question.option_a;
-        document.getElementById('solo-opt-B').textContent = data.question.option_b;
-        document.getElementById('solo-opt-C').textContent = data.question.option_c;
-        document.getElementById('solo-opt-D').textContent = data.question.option_d;
-
-        for (const btn of document.querySelectorAll('#solo-options-grid .option-btn')) {
-          btn.disabled = false;
-          btn.classList.remove('selected-option', 'correct-reveal', 'wrong-reveal', 'dimmed-reveal');
-        }
-
-        document.getElementById('solo-feedback-box').classList.add('hidden');
-        document.getElementById('solo-next-btn').classList.add('hidden');
+        // Se já pré-carregamos a próxima questão em background enquanto o usuário lia o gabarito, exibe em 0ms!
+        const promise = prefetchedNextPromise || apiFetch('/api/solo/next');
+        prefetchedNextPromise = null;
+        const data = await promise;
+        renderQuestionPayload(data);
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -181,6 +190,9 @@
             selected_option: selectedOpt,
           }),
         });
+
+        // Assim que a resposta é salva no banco, já dispara o pré-carregamento da PRÓXIMA questão em background!
+        prefetchedNextPromise = apiFetch('/api/solo/next').catch(() => null);
 
         const st = res.stats;
         const pct = st.total_questions > 0 ? Math.round((st.mastered_in_cycle / st.total_questions) * 100) : 0;
@@ -220,13 +232,15 @@
       }
     }
 
-    document.addEventListener('DOMContentLoaded', async () => {
-      await initAuthenticatedPage('solo');
+    document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('#solo-options-grid .option-btn').forEach((btn) => {
         btn.addEventListener('click', () => submitAnswer(btn.dataset.opt));
       });
       document.getElementById('solo-next-btn').addEventListener('click', loadNextQuestion);
+
+      // Carrega a 1ª questão e o cabeçalho EM PARALELO (sem esperar /api/auth/me terminar antes!)
       loadNextQuestion();
+      initAuthenticatedPage('solo');
     });
   </script>
 </body>
