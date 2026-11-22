@@ -315,23 +315,24 @@ func (s *Server) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Category      string `json:"category"`
-			Statement     string `json:"statement"`
-			OptionA       string `json:"option_a"`
-			OptionB       string `json:"option_b"`
-			OptionC       string `json:"option_c"`
-			OptionD       string `json:"option_d"`
-			CorrectOption string `json:"correct_option"`
-			Explanation   string `json:"explanation"`
-			TimeLimitSec  int    `json:"time_limit_sec"`
-			ForceCreate   bool   `json:"force_create"` // true quando o admin validou que a pergunta parecida segue lógica distinta
+			Category       string `json:"category"`
+			Statement      string `json:"statement"`
+			OptionA        string `json:"option_a"`
+			OptionB        string `json:"option_b"`
+			OptionC        string `json:"option_c"`
+			OptionD        string `json:"option_d"`
+			CorrectOption  string `json:"correct_option"`
+			Explanation    string `json:"explanation"`
+			ReadingTimeSec int    `json:"reading_time_sec"`
+			TimeLimitSec   int    `json:"time_limit_sec"`
+			ForceCreate    bool   `json:"force_create"` // true quando o admin validou que a pergunta parecida segue lógica distinta
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "JSON inválido")
 			return
 		}
 
-		q, err := validateAndBuildQuestion(req.Category, req.Statement, req.OptionA, req.OptionB, req.OptionC, req.OptionD, req.CorrectOption, req.Explanation, req.TimeLimitSec, user.ID)
+		q, err := validateAndBuildQuestion(req.Category, req.Statement, req.OptionA, req.OptionB, req.OptionC, req.OptionD, req.CorrectOption, req.Explanation, req.ReadingTimeSec, req.TimeLimitSec, user.ID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -405,23 +406,24 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var req struct {
-			Category      string `json:"category"`
-			Statement     string `json:"statement"`
-			OptionA       string `json:"option_a"`
-			OptionB       string `json:"option_b"`
-			OptionC       string `json:"option_c"`
-			OptionD       string `json:"option_d"`
-			CorrectOption string `json:"correct_option"`
-			Explanation   string `json:"explanation"`
-			TimeLimitSec  int    `json:"time_limit_sec"`
-			ForceCreate   bool   `json:"force_create"`
+			Category       string `json:"category"`
+			Statement      string `json:"statement"`
+			OptionA        string `json:"option_a"`
+			OptionB        string `json:"option_b"`
+			OptionC        string `json:"option_c"`
+			OptionD        string `json:"option_d"`
+			CorrectOption  string `json:"correct_option"`
+			Explanation    string `json:"explanation"`
+			ReadingTimeSec int    `json:"reading_time_sec"`
+			TimeLimitSec   int    `json:"time_limit_sec"`
+			ForceCreate    bool   `json:"force_create"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "JSON inválido")
 			return
 		}
 
-		validated, err := validateAndBuildQuestion(req.Category, req.Statement, req.OptionA, req.OptionB, req.OptionC, req.OptionD, req.CorrectOption, req.Explanation, req.TimeLimitSec, existing.CreatedByID)
+		validated, err := validateAndBuildQuestion(req.Category, req.Statement, req.OptionA, req.OptionB, req.OptionC, req.OptionD, req.CorrectOption, req.Explanation, req.ReadingTimeSec, req.TimeLimitSec, existing.CreatedByID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -458,6 +460,7 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 		existing.OptionD = validated.OptionD
 		existing.CorrectOption = validated.CorrectOption
 		existing.Explanation = validated.Explanation
+		existing.ReadingTimeSec = validated.ReadingTimeSec
 		existing.TimeLimitSec = validated.TimeLimitSec
 
 		if err := s.DB.Save(&existing).Error; err != nil {
@@ -487,7 +490,7 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func validateAndBuildQuestion(category, statement, optA, optB, optC, optD, correct, explanation string, timeLimit int, creatorID uint) (*models.Question, error) {
+func validateAndBuildQuestion(category, statement, optA, optB, optC, optD, correct, explanation string, readingTime, timeLimit int, creatorID uint) (*models.Question, error) {
 	category = strings.ToLower(strings.TrimSpace(category))
 	if category != models.CategoryGeneral && category != models.CategorySpecific {
 		return nil, errors.New("selecione o tipo da pergunta: 1ª Etapa Geral ou 2ª Etapa Específica")
@@ -506,23 +509,28 @@ func validateAndBuildQuestion(category, statement, optA, optB, optC, optD, corre
 	if correct != "A" && correct != "B" && correct != "C" && correct != "D" {
 		return nil, errors.New("marque a caixa de seleção da alternativa correta (A, B, C ou D)")
 	}
-	// Regra validada: apenas 3 opções de tempo: 30s, 45s (padrão) ou 60s
+	// Opções de tempo de leitura do enunciado: 5s, 10s, 15s (padrão), 20s ou 30s
+	if readingTime != 5 && readingTime != 10 && readingTime != 15 && readingTime != 20 && readingTime != 30 {
+		readingTime = models.DefaultReadingPhaseSeconds
+	}
+	// Opções de tempo para responder: 30s, 45s (padrão) ou 60s
 	if timeLimit != 30 && timeLimit != 45 && timeLimit != 60 {
 		timeLimit = 45
 	}
 
 	return &models.Question{
-		Category:      category,
-		Statement:     statement,
-		StatementHash: quiz.ComputeStatementHash(statement),
-		OptionA:       optA,
-		OptionB:       optB,
-		OptionC:       optC,
-		OptionD:       optD,
-		CorrectOption: correct,
-		Explanation:   explanation,
-		TimeLimitSec:  timeLimit,
-		CreatedByID:   creatorID,
+		Category:       category,
+		Statement:      statement,
+		StatementHash:  quiz.ComputeStatementHash(statement),
+		OptionA:        optA,
+		OptionB:        optB,
+		OptionC:        optC,
+		OptionD:        optD,
+		CorrectOption:  correct,
+		Explanation:    explanation,
+		ReadingTimeSec: readingTime,
+		TimeLimitSec:   timeLimit,
+		CreatedByID:    creatorID,
 	}, nil
 }
 
@@ -1177,8 +1185,12 @@ func (s *Server) HandleArenaTeamRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Soma o tempo de leitura inicial (5s mostrando apenas a pergunta) + o tempo da questão (30s/45s/60s)
-		totalDuration := models.ReadingPhaseSeconds + nextRes.Question.TimeLimitSec
+		// Soma o tempo de leitura configurado na questão + o tempo de responder da questão
+		readingSec := nextRes.Question.ReadingTimeSec
+		if readingSec <= 0 {
+			readingSec = models.DefaultReadingPhaseSeconds
+		}
+		totalDuration := readingSec + nextRes.Question.TimeLimitSec
 		s.scheduleRoundTimer(team.PIN, team.RoundNumber, totalDuration)
 		s.broadcastArenaState(pin)
 		state, _ := s.buildArenaTeamState(pin, user.ID)
@@ -1223,8 +1235,12 @@ func (s *Server) HandleArenaTeamRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Desconta os 5 segundos iniciais de leitura do enunciado no cálculo de velocidade
-		readingMs := int64(models.ReadingPhaseSeconds * 1000)
+		// Desconta o tempo configurado de leitura do enunciado no cálculo de velocidade
+		readingSec := team.CurrentQuestion.ReadingTimeSec
+		if readingSec <= 0 {
+			readingSec = models.DefaultReadingPhaseSeconds
+		}
+		readingMs := int64(readingSec * 1000)
 		elapsedMs := int64(0)
 		if team.RoundStartedAt != nil {
 			elapsedMs = time.Since(*team.RoundStartedAt).Milliseconds() - readingMs
@@ -1536,8 +1552,12 @@ func (s *Server) buildArenaTeamState(pin string, viewerUserID uint) (map[string]
 	var questionView any = nil
 	remainingSec := 0
 	readingRemainingSec := 0
+	readingPhaseTotal := models.DefaultReadingPhaseSeconds
 	if team.CurrentQuestion != nil {
 		q := *team.CurrentQuestion
+		if q.ReadingTimeSec > 0 {
+			readingPhaseTotal = q.ReadingTimeSec
+		}
 		if team.RoundState != models.RoundStateRevealed && team.RoundState != models.RoundStateLeaderboard {
 			q.CorrectOption = ""
 			q.Explanation = ""
@@ -1546,12 +1566,12 @@ func (s *Server) buildArenaTeamState(pin string, viewerUserID uint) (map[string]
 
 		if team.RoundState == models.RoundStateQuestion && team.RoundStartedAt != nil {
 			elapsed := int(time.Since(*team.RoundStartedAt).Seconds())
-			if elapsed < models.ReadingPhaseSeconds {
-				readingRemainingSec = models.ReadingPhaseSeconds - elapsed
+			if elapsed < readingPhaseTotal {
+				readingRemainingSec = readingPhaseTotal - elapsed
 				remainingSec = q.TimeLimitSec
 			} else {
 				readingRemainingSec = 0
-				answerElapsed := elapsed - models.ReadingPhaseSeconds
+				answerElapsed := elapsed - readingPhaseTotal
 				remainingSec = q.TimeLimitSec - answerElapsed
 				if remainingSec < 0 {
 					remainingSec = 0
@@ -1601,7 +1621,7 @@ func (s *Server) buildArenaTeamState(pin string, viewerUserID uint) (map[string]
 			"round_number":          team.RoundNumber,
 			"round_state":           team.RoundState,
 			"last_cycle_restarted":  team.LastCycleRestarted,
-			"reading_phase_total":   models.ReadingPhaseSeconds,
+			"reading_phase_total":   readingPhaseTotal,
 			"reading_remaining_sec": readingRemainingSec,
 			"remaining_sec":         remainingSec,
 			"answered_count":        len(roundAnswers),

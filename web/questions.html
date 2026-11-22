@@ -183,9 +183,36 @@
           </div>
         </div>
 
-        <!-- 2. Tempo da Pergunta: Apenas 30s, 45s (Padrão) ou 60s -->
+        <!-- 2. Tempo para Ler a Pergunta (Antes de mostrar as alternativas) -->
         <div class="form-group">
-          <span class="form-label">2. Tempo para Responder (Padrão: 45 segundos) *</span>
+          <span class="form-label">2. Tempo para Ler o Enunciado (Antes de abrir as opções — Padrão: 15s) *</span>
+          <div class="single-check-grid" id="reading-time-check-group" style="grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));">
+            <label class="check-box-option" data-read-box="5">
+              <input type="checkbox" name="q_read_time_cb" value="5" />
+              <span>📖 5 seg</span>
+            </label>
+            <label class="check-box-option" data-read-box="10">
+              <input type="checkbox" name="q_read_time_cb" value="10" />
+              <span>📖 10 seg</span>
+            </label>
+            <label class="check-box-option is-checked" data-read-box="15">
+              <input type="checkbox" name="q_read_time_cb" value="15" checked />
+              <span>📖 15 seg (Padrão)</span>
+            </label>
+            <label class="check-box-option" data-read-box="20">
+              <input type="checkbox" name="q_read_time_cb" value="20" />
+              <span>📖 20 seg</span>
+            </label>
+            <label class="check-box-option" data-read-box="30">
+              <input type="checkbox" name="q_read_time_cb" value="30" />
+              <span>📖 30 seg</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 3. Tempo para Responder: Apenas 30s, 45s (Padrão) ou 60s -->
+        <div class="form-group">
+          <span class="form-label">3. Tempo para Responder (Após liberar as alternativas — Padrão: 45s) *</span>
           <div class="single-check-grid" id="time-check-group">
             <label class="check-box-option" data-time-box="30">
               <input type="checkbox" name="q_time_cb" value="30" />
@@ -202,10 +229,10 @@
           </div>
         </div>
 
-        <!-- 3. Enunciado Completo + Status Assíncrono Anti-Duplicação -->
+        <!-- 4. Enunciado Completo + Status Assíncrono Anti-Duplicação -->
         <div class="form-group">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.4rem;">
-            <label class="form-label" for="q-statement" style="margin: 0;">3. Enunciado Completo da Questão *</label>
+            <label class="form-label" for="q-statement" style="margin: 0;">4. Enunciado Completo da Questão *</label>
             <span id="sim-live-pill" class="sim-status-pill hidden"></span>
           </div>
           <textarea
@@ -323,6 +350,7 @@
     let currentUser = null;
     let questionsCache = [];
     let selectedCategory = 'general';
+    let selectedReadingTime = 15;
     let selectedTime = 45;
     let selectedCorrectOption = 'A';
 
@@ -336,6 +364,18 @@
       selectedCategory = cat;
       document.querySelectorAll('#category-check-group .check-box-option').forEach((lbl) => {
         const isMatch = lbl.dataset.catBox === cat;
+        lbl.classList.toggle('is-checked', isMatch);
+        lbl.querySelector('input').checked = isMatch;
+      });
+    }
+
+    function setReadingTimeCheckbox(sec) {
+      selectedReadingTime = Number(sec);
+      if (![5, 10, 15, 20, 30].includes(selectedReadingTime)) {
+        selectedReadingTime = 15;
+      }
+      document.querySelectorAll('#reading-time-check-group .check-box-option').forEach((lbl) => {
+        const isMatch = Number(lbl.dataset.readBox) === selectedReadingTime;
         lbl.classList.toggle('is-checked', isMatch);
         lbl.querySelector('input').checked = isMatch;
       });
@@ -510,6 +550,7 @@
 
       document.getElementById('q-id').value = q ? q.id : '';
       setCategoryCheckbox(q ? q.category : 'general');
+      setReadingTimeCheckbox(q ? q.reading_time_sec : 15);
       setTimeCheckbox(q ? q.time_limit_sec : 45);
       setCorrectOptionCheckbox(q ? q.correct_option : 'A');
 
@@ -627,7 +668,7 @@
                   ${isGen ? '1ª Etapa: Geral' : '2ª Etapa: Específica'}
                 </span>
                 <span class="text-slate" style="font-size: 0.82rem; font-weight: 600;">
-                  Questão #${item.id} • Tempo: ${item.time_limit_sec}s • Criada por: ${escapeHTML(authorName)}
+                  Questão #${item.id} • Leitura: ${item.reading_time_sec || 15}s • Resposta: ${item.time_limit_sec}s • Criada por: ${escapeHTML(authorName)}
                 </span>
               </div>
               ${
@@ -727,6 +768,13 @@
         });
       });
 
+      document.querySelectorAll('#reading-time-check-group .check-box-option').forEach((lbl) => {
+        const inp = lbl.querySelector('input[type="checkbox"]');
+        inp.addEventListener('change', () => {
+          setReadingTimeCheckbox(Number(lbl.dataset.readBox));
+        });
+      });
+
       document.querySelectorAll('#time-check-group .check-box-option').forEach((lbl) => {
         const inp = lbl.querySelector('input[type="checkbox"]');
         inp.addEventListener('change', () => {
@@ -769,6 +817,7 @@
         const payload = {
           category: selectedCategory,
           correct_option: selectedCorrectOption,
+          reading_time_sec: selectedReadingTime,
           time_limit_sec: selectedTime,
           statement: document.getElementById('q-statement').value,
           option_a: document.getElementById('q-opt-a').value,

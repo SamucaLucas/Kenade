@@ -18,7 +18,7 @@ const (
 	RoundStateRevealed    = "revealed"
 	RoundStateLeaderboard = "leaderboard"
 
-	ReadingPhaseSeconds = 5 // Tempo inicial exibindo apenas o enunciado antes de liberar as alternativas
+	DefaultReadingPhaseSeconds = 15 // Tempo padrão (em segundos) exibindo apenas o enunciado para leitura
 )
 
 // User representa um jogador ou administrador cadastrado no Kenade.
@@ -45,9 +45,10 @@ type Question struct {
 	OptionB       string    `gorm:"type:text;not null" json:"option_b"`
 	OptionC       string    `gorm:"type:text;not null" json:"option_c"`
 	OptionD       string    `gorm:"type:text;not null" json:"option_d"`
-	CorrectOption string    `gorm:"size:1;not null" json:"correct_option"` // "A", "B", "C" ou "D"
-	Explanation   string    `gorm:"type:text" json:"explanation"`          // Opcional
-	TimeLimitSec  int       `gorm:"not null;default:45" json:"time_limit_sec"`
+	CorrectOption  string    `gorm:"size:1;not null" json:"correct_option"` // "A", "B", "C" ou "D"
+	Explanation    string    `gorm:"type:text" json:"explanation"`          // Opcional
+	ReadingTimeSec int       `gorm:"not null;default:15" json:"reading_time_sec"`
+	TimeLimitSec   int       `gorm:"not null;default:45" json:"time_limit_sec"`
 	CreatedByID   uint      `gorm:"index" json:"created_by_id"`
 	CreatedBy     *User     `gorm:"foreignKey:CreatedByID" json:"created_by,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
