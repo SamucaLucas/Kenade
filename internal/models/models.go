@@ -40,6 +40,7 @@ type Question struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
 	Category      string    `gorm:"size:20;not null;index;default:'general'" json:"category"` // "general" ou "specific"
 	Statement     string    `gorm:"type:text;not null" json:"statement"`
+	StatementHash string    `gorm:"size:64;index" json:"statement_hash"`
 	OptionA       string    `gorm:"type:text;not null" json:"option_a"`
 	OptionB       string    `gorm:"type:text;not null" json:"option_b"`
 	OptionC       string    `gorm:"type:text;not null" json:"option_c"`

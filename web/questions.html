@@ -12,6 +12,54 @@
   <title>Banco Colaborativo de Questões — Kenade</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .sim-alert-box {
+      border-radius: 0.9rem;
+      padding: 1.1rem 1.25rem;
+      margin: 0.75rem 0 1.15rem;
+      border: 2px solid transparent;
+    }
+    .sim-alert-box.exact {
+      background: rgba(220, 38, 38, 0.16);
+      border-color: var(--color-crimson);
+    }
+    .sim-alert-box.similar {
+      background: rgba(245, 158, 11, 0.14);
+      border-color: var(--color-amber);
+    }
+    .sim-match-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 0.75rem;
+      padding: 0.9rem 1rem;
+      margin-top: 0.75rem;
+    }
+    .sim-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 800;
+      padding: 0.22rem 0.65rem;
+      border-radius: 999px;
+    }
+    .sim-status-pill.checking {
+      background: var(--bg-elevated);
+      color: var(--color-amber);
+    }
+    .sim-status-pill.clean {
+      background: rgba(5, 150, 105, 0.2);
+      color: var(--color-emerald);
+    }
+    .sim-status-pill.warn {
+      background: rgba(245, 158, 11, 0.25);
+      color: var(--color-amber);
+    }
+    .sim-status-pill.block {
+      background: rgba(220, 38, 38, 0.25);
+      color: var(--color-crimson);
+    }
+  </style>
 </head>
 <body>
 
@@ -46,7 +94,7 @@
     <div class="card hidden" id="admin-users-card" style="margin-bottom: 1.25rem;">
       <h2 class="card-title">Equipe de Criação Colaborativa (Promover Amigos a Admin)</h2>
       <p class="text-slate" style="margin: 0 0 0.9rem; font-size: 0.9rem;">
-        Pesquise pelo <strong>@usuário</strong> do seu amigo no combobox abaixo para promovê-lo a <strong>Admin</strong> e injetarem questões juntos.
+        Pesquise pelo <strong>@usuário</strong> do seu amigo no combobox abaixo para promovê-lo a <strong>Admin</strong> e injetarem questões juntos em tempo real.
       </p>
 
       <div class="form-group" style="max-width: 520px;">
@@ -74,8 +122,11 @@
     <div class="card" style="margin-bottom: 1.25rem;">
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem;">
         <div>
-          <h1 class="card-title">Banco Único Colaborativo de Questões ENADE</h1>
-          <p class="text-slate" style="margin: 0; font-size: 0.92rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <h1 class="card-title" style="margin: 0;">Banco Único Colaborativo de Questões ENADE</h1>
+            <span class="role-tag player" id="live-sync-indicator" title="Sincronizado em tempo real com os outros admins">🟢 Sincronia ao Vivo</span>
+          </div>
+          <p class="text-slate" style="margin: 0.3rem 0 0; font-size: 0.92rem;">
             Total no banco: <strong id="bank-total-count">0</strong> questões
             (<strong id="bank-general-count" style="color: var(--color-cyan);">0 Gerais</strong> •
             <strong id="bank-specific-count" style="color: var(--color-orange);">0 Específicas</strong>)
@@ -106,7 +157,7 @@
   </main>
 
   <!-- ======================================================================
-       MODAL <dialog>: CRIAR / EDITAR QUESTÃO (CAIXAS DE SELEÇÃO ÚNICA)
+       MODAL <dialog>: CRIAR / EDITAR QUESTÃO (COM VERIFICAÇÃO ASSÍNCRONA ANTI-DUPLICAÇÃO)
        ====================================================================== -->
   <dialog id="question-dialog" aria-labelledby="question-dialog-title" closedby="any">
     <div class="dialog-header">
@@ -117,7 +168,7 @@
       <div class="dialog-body">
         <input type="hidden" id="q-id" value="" />
 
-        <!-- 1. Tipo / Ordem da Pergunta (Caixas de Seleção Única em vez de Combobox) -->
+        <!-- 1. Tipo / Ordem da Pergunta (Caixas de Seleção Única) -->
         <div class="form-group">
           <span class="form-label">1. Tipo / Ordem da Pergunta (Marque uma caixa) *</span>
           <div class="single-check-grid" id="category-check-group">
@@ -132,7 +183,7 @@
           </div>
         </div>
 
-        <!-- 2. Tempo da Pergunta: Apenas 30s, 45s (Padrão) ou 60s em Caixa de Seleção -->
+        <!-- 2. Tempo da Pergunta: Apenas 30s, 45s (Padrão) ou 60s -->
         <div class="form-group">
           <span class="form-label">2. Tempo para Responder (Padrão: 45 segundos) *</span>
           <div class="single-check-grid" id="time-check-group">
@@ -151,19 +202,49 @@
           </div>
         </div>
 
-        <!-- 3. Enunciado Completo -->
+        <!-- 3. Enunciado Completo + Status Assíncrono Anti-Duplicação -->
         <div class="form-group">
-          <label class="form-label" for="q-statement">3. Enunciado Completo da Questão (Sem limite curto de caracteres) *</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.4rem;">
+            <label class="form-label" for="q-statement" style="margin: 0;">3. Enunciado Completo da Questão *</label>
+            <span id="sim-live-pill" class="sim-status-pill hidden"></span>
+          </div>
           <textarea
             id="q-statement"
             class="form-textarea"
             rows="5"
             required
-            placeholder="Cole ou digite aqui o texto base, asserções I/II/III e comando da questão do ENADE..."
+            placeholder="Cole ou digite aqui o texto base, asserções I/II/III e comando da questão do ENADE (a verificação anti-duplicação roda automaticamente enquanto você digita)..."
           ></textarea>
         </div>
 
-        <!-- 4. Alternativas A, B, C, D com Caixa de Seleção da Resposta Correta fixa em cada alternativa -->
+        <!-- PAINEL 1: BLOQUEIO ESTRITO DE PERGUNTA IDÊNTICA (Não permite cadastrar) -->
+        <div id="sim-exact-alert" class="sim-alert-box exact hidden">
+          <div style="font-weight: 900; font-size: 1.05rem; color: var(--color-crimson);">
+            ⛔ Pergunta Idêntica Já Cadastrada! (Cadastro Bloqueado)
+          </div>
+          <p class="text-slate" style="margin: 0.25rem 0 0; font-size: 0.88rem;">
+            Esta pergunta já foi injetada no banco e não pode ser duplicada. Veja a questão existente abaixo:
+          </p>
+          <div id="sim-exact-card-container"></div>
+        </div>
+
+        <!-- PAINEL 2: ALERTA DE PERGUNTA MUITO PARECIDA (Exibe a parecida para o Admin validar se são distintas) -->
+        <div id="sim-warning-alert" class="sim-alert-box similar hidden">
+          <div style="font-weight: 900; font-size: 1.05rem; color: var(--color-amber);">
+            ⚠️ Atenção: Encontramos pergunta(s) muito parecida(s) no banco!
+          </div>
+          <p class="text-slate" style="margin: 0.25rem 0 0; font-size: 0.88rem;">
+            Compare abaixo com a(s) questão(ões) já cadastrada(s) pelos administradores e valide se elas seguem a mesma lógica ou se são realmente perguntas distintas:
+          </p>
+          <div id="sim-warning-cards-container"></div>
+
+          <label class="check-box-option" id="sim-confirm-distinct-label" style="margin-top: 0.9rem; border-color: var(--color-amber);">
+            <input type="checkbox" id="sim-confirm-distinct-cb" />
+            <span>✅ Validei a(s) pergunta(s) parecida(s) acima e confirmo que são <strong>perguntas distintas</strong> (lógica/comando diferente)</span>
+          </label>
+        </div>
+
+        <!-- 4. Alternativas A, B, C, D com Caixa de Seleção da Resposta Correta -->
         <div class="form-group">
           <span class="form-label">4. Alternativas (Marque a caixa de seleção na alternativa que está CORRETA) *</span>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 0.9rem;" id="options-editor-grid">
@@ -232,7 +313,7 @@
 
       <div class="dialog-footer">
         <button type="button" class="btn btn-outline" id="cancel-question-dialog-btn">Cancelar</button>
-        <button type="submit" class="btn btn-emerald">Salvar Questão no Banco</button>
+        <button type="submit" class="btn btn-emerald" id="save-question-submit-btn">Salvar Questão no Banco</button>
       </div>
     </form>
   </dialog>
@@ -244,6 +325,12 @@
     let selectedCategory = 'general';
     let selectedTime = 45;
     let selectedCorrectOption = 'A';
+
+    // Estado da verificação assíncrona anti-duplicação
+    let simDebounceTimer = null;
+    let currentSimStatus = 'ok'; // 'ok' | 'exact_duplicate' | 'similar_warning'
+    let simCheckSeq = 0;
+    let adminWS = null;
 
     function setCategoryCheckbox(cat) {
       selectedCategory = cat;
@@ -275,6 +362,146 @@
       });
     }
 
+    function renderMatchCardHTML(match) {
+      const q = match.question || {};
+      const author = q.created_by ? `@${q.created_by.username} (${q.created_by.name})` : 'Admin';
+      const isGen = q.category === 'general';
+      return `
+        <div class="sim-match-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span class="role-tag admin">Questão #${q.id}</span>
+              <span class="category-badge ${isGen ? 'general' : 'specific'}" style="font-size: 0.7rem; padding: 0.15rem 0.55rem;">
+                ${isGen ? '1ª Etapa: Geral' : '2ª Etapa: Específica'}
+              </span>
+              <span class="text-slate" style="font-size: 0.8rem;">Criada por: <strong>${escapeHTML(author)}</strong></span>
+            </div>
+            <span class="role-tag ${match.is_exact ? 'admin' : 'player'}">
+              ${match.similarity_percent || 100}% de semelhança • ${escapeHTML(match.match_reason || '')}
+            </span>
+          </div>
+          <div style="background: var(--bg-elevated); padding: 0.75rem 0.9rem; border-radius: 0.55rem; font-size: 0.92rem; white-space: pre-wrap; margin-bottom: 0.55rem;">${escapeHTML(q.statement)}</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 0.4rem; font-size: 0.82rem;">
+            <div style="padding: 0.4rem 0.6rem; border-radius: 0.4rem; background: var(--bg-elevated); border-left: 3px solid var(--color-blue);">
+              <strong>A)</strong> ${escapeHTML(q.option_a)} ${q.correct_option === 'A' ? '✅' : ''}
+            </div>
+            <div style="padding: 0.4rem 0.6rem; border-radius: 0.4rem; background: var(--bg-elevated); border-left: 3px solid var(--color-purple);">
+              <strong>B)</strong> ${escapeHTML(q.option_b)} ${q.correct_option === 'B' ? '✅' : ''}
+            </div>
+            <div style="padding: 0.4rem 0.6rem; border-radius: 0.4rem; background: var(--bg-elevated); border-left: 3px solid var(--color-cyan);">
+              <strong>C)</strong> ${escapeHTML(q.option_c)} ${q.correct_option === 'C' ? '✅' : ''}
+            </div>
+            <div style="padding: 0.4rem 0.6rem; border-radius: 0.4rem; background: var(--bg-elevated); border-left: 3px solid var(--color-magenta);">
+              <strong>D)</strong> ${escapeHTML(q.option_d)} ${q.correct_option === 'D' ? '✅' : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateSaveButtonState() {
+      const saveBtn = document.getElementById('save-question-submit-btn');
+      const confirmDistinctCb = document.getElementById('sim-confirm-distinct-cb');
+      const confirmLabel = document.getElementById('sim-confirm-distinct-label');
+
+      if (confirmLabel && confirmDistinctCb) {
+        confirmLabel.classList.toggle('is-checked', confirmDistinctCb.checked);
+      }
+
+      if (currentSimStatus === 'exact_duplicate') {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⛔ Pergunta Idêntica (Bloqueada)';
+      } else if (currentSimStatus === 'similar_warning' && !confirmDistinctCb.checked) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⚠️ Valide a Pergunta Parecida Acima para Salvar';
+      } else {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Salvar Questão no Banco';
+      }
+    }
+
+    function applySimilarityResponse(res) {
+      const pill = document.getElementById('sim-live-pill');
+      const exactAlert = document.getElementById('sim-exact-alert');
+      const exactContainer = document.getElementById('sim-exact-card-container');
+      const warnAlert = document.getElementById('sim-warning-alert');
+      const warnContainer = document.getElementById('sim-warning-cards-container');
+
+      currentSimStatus = res.status || 'ok';
+
+      if (currentSimStatus === 'exact_duplicate' && res.exact_match) {
+        pill.className = 'sim-status-pill block';
+        pill.textContent = `⛔ Idêntica à Questão #${res.exact_match.question.id}`;
+        pill.classList.remove('hidden');
+
+        exactContainer.innerHTML = renderMatchCardHTML(res.exact_match);
+        exactAlert.classList.remove('hidden');
+        warnAlert.classList.add('hidden');
+      } else if (currentSimStatus === 'similar_warning' && (res.similar_matches || []).length > 0) {
+        pill.className = 'sim-status-pill warn';
+        pill.textContent = `⚠️ ${res.similar_matches.length} pergunta(s) parecida(s) encontrada(s)`;
+        pill.classList.remove('hidden');
+
+        warnContainer.innerHTML = res.similar_matches.map(renderMatchCardHTML).join('');
+        warnAlert.classList.remove('hidden');
+        exactAlert.classList.add('hidden');
+      } else {
+        pill.className = 'sim-status-pill clean';
+        pill.textContent = '✅ Pergunta inédita (sem duplicidade)';
+        pill.classList.remove('hidden');
+
+        exactAlert.classList.add('hidden');
+        warnAlert.classList.add('hidden');
+      }
+
+      updateSaveButtonState();
+    }
+
+    function resetSimilarityUI() {
+      currentSimStatus = 'ok';
+      document.getElementById('sim-live-pill').classList.add('hidden');
+      document.getElementById('sim-exact-alert').classList.add('hidden');
+      document.getElementById('sim-warning-alert').classList.add('hidden');
+      document.getElementById('sim-confirm-distinct-cb').checked = false;
+      updateSaveButtonState();
+    }
+
+    // Dispara a verificação assíncrona enquanto o Admin digita ou cola a pergunta
+    function triggerAsyncSimilarityCheck() {
+      clearTimeout(simDebounceTimer);
+      const stmt = document.getElementById('q-statement').value.trim();
+      if (stmt.length < 8) {
+        resetSimilarityUI();
+        return;
+      }
+
+      const pill = document.getElementById('sim-live-pill');
+      pill.className = 'sim-status-pill checking';
+      pill.textContent = '🔍 Verificando duplicidade no banco...';
+      pill.classList.remove('hidden');
+
+      simDebounceTimer = setTimeout(async () => {
+        const seq = ++simCheckSeq;
+        const excludeID = Number(document.getElementById('q-id').value) || 0;
+        try {
+          const res = await apiFetch('/api/questions/check', {
+            method: 'POST',
+            body: JSON.stringify({
+              exclude_id: excludeID,
+              statement: stmt,
+              option_a: document.getElementById('q-opt-a').value,
+              option_b: document.getElementById('q-opt-b').value,
+              option_c: document.getElementById('q-opt-c').value,
+              option_d: document.getElementById('q-opt-d').value,
+            }),
+          });
+          if (seq === simCheckSeq) {
+            applySimilarityResponse(res);
+          }
+        } catch {}
+      }, 300);
+    }
+
     function openQuestionDialog(q = null) {
       const dlg = document.getElementById('question-dialog');
       document.getElementById('question-dialog-title').textContent = q
@@ -293,7 +520,28 @@
       document.getElementById('q-opt-d').value = q ? q.option_d : '';
       document.getElementById('q-explanation').value = q ? q.explanation || '' : '';
 
+      resetSimilarityUI();
       dlg.showModal();
+    }
+
+    // Conecta via WebSocket para sincronizar em tempo real quando os outros admins injetam questões
+    function connectAdminQuestionsWS() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = localStorage.getItem('kenade_token') || '';
+      adminWS = new WebSocket(`${proto}//${window.location.host}/ws/questions?token=${encodeURIComponent(token)}`);
+      adminWS.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'question_created' || msg.type === 'question_updated' || msg.type === 'question_deleted') {
+            loadQuestionsBank();
+            // Se o admin atual estiver com o modal de nova pergunta aberto digitando, revalida imediatamente contra a questão recém-injetada!
+            const dlg = document.getElementById('question-dialog');
+            if (dlg && dlg.open) {
+              triggerAsyncSimilarityCheck();
+            }
+          }
+        } catch {}
+      };
     }
 
     async function loadAdminsList() {
@@ -450,6 +698,7 @@
 
       if (isAdmin) {
         loadAdminsList();
+        connectAdminQuestionsWS();
         createUserSearchCombobox({
           inputEl: document.getElementById('promote-search-input'),
           dropdownEl: document.getElementById('promote-search-dropdown'),
@@ -470,27 +719,37 @@
       }
 
       // Eventos das Caixas de Seleção Única (Tipo, Tempo e Alternativa Correta)
+      // Usamos o evento 'change' no input (sem e.preventDefault() no click) para o navegador nunca reverter o checkbox!
       document.querySelectorAll('#category-check-group .check-box-option').forEach((lbl) => {
-        lbl.addEventListener('click', (e) => {
-          e.preventDefault();
+        const inp = lbl.querySelector('input[type="checkbox"]');
+        inp.addEventListener('change', () => {
           setCategoryCheckbox(lbl.dataset.catBox);
         });
       });
 
       document.querySelectorAll('#time-check-group .check-box-option').forEach((lbl) => {
-        lbl.addEventListener('click', (e) => {
-          e.preventDefault();
+        const inp = lbl.querySelector('input[type="checkbox"]');
+        inp.addEventListener('change', () => {
           setTimeCheckbox(Number(lbl.dataset.timeBox));
         });
       });
 
       document.querySelectorAll('#options-editor-grid .option-editor-card').forEach((card) => {
-        const cbLabel = card.querySelector('.correct-check-label');
-        cbLabel.addEventListener('click', (e) => {
-          e.preventDefault();
+        const inp = card.querySelector('input[name="q_correct_cb"]');
+        inp.addEventListener('change', () => {
           setCorrectOptionCheckbox(card.dataset.optCard);
         });
       });
+
+      // Listeners de Verificação Assíncrona de Similaridade em Tempo Real enquanto o Admin digita
+      ['q-statement', 'q-opt-a', 'q-opt-b', 'q-opt-c', 'q-opt-d'].forEach((id) => {
+        document.getElementById(id).addEventListener('input', () => {
+          document.getElementById('sim-confirm-distinct-cb').checked = false;
+          triggerAsyncSimilarityCheck();
+        });
+      });
+
+      document.getElementById('sim-confirm-distinct-cb').addEventListener('change', updateSaveButtonState);
 
       document.getElementById('open-new-question-modal-btn').addEventListener('click', () => openQuestionDialog(null));
       document.getElementById('close-question-dialog-btn').addEventListener('click', () =>
@@ -506,6 +765,7 @@
       document.getElementById('question-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const qID = document.getElementById('q-id').value;
+        const forceCreate = document.getElementById('sim-confirm-distinct-cb').checked;
         const payload = {
           category: selectedCategory,
           correct_option: selectedCorrectOption,
@@ -516,16 +776,44 @@
           option_c: document.getElementById('q-opt-c').value,
           option_d: document.getElementById('q-opt-d').value,
           explanation: document.getElementById('q-explanation').value,
+          force_create: forceCreate,
         };
 
         try {
-          if (qID) {
-            await apiFetch(`/api/questions/${qID}`, { method: 'PUT', body: JSON.stringify(payload) });
-            showToast('Questão atualizada com sucesso!', 'success');
-          } else {
-            await apiFetch('/api/questions', { method: 'POST', body: JSON.stringify(payload) });
-            showToast('Nova questão injetada no quiz ENADE!', 'success');
+          const url = qID ? `/api/questions/${qID}` : '/api/questions';
+          const method = qID ? 'PUT' : 'POST';
+          const token = localStorage.getItem('kenade_token');
+          const resp = await fetch(url, {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(payload),
+          });
+          const data = await resp.json().catch(() => ({}));
+
+          if (resp.status === 409) {
+            // Se outro admin cadastrou uma questão idêntica ou parecida milissegundos antes, exibe o painel comparativo imediatamente!
+            if (data.code === 'exact_duplicate') {
+              applySimilarityResponse({ status: 'exact_duplicate', exact_match: data.exact_match });
+              document.getElementById('sim-exact-alert').scrollIntoView({ behavior: 'smooth', block: 'center' });
+              showToast(data.error, 'error');
+              return;
+            }
+            if (data.code === 'similar_warning') {
+              applySimilarityResponse({ status: 'similar_warning', similar_matches: data.similar_matches });
+              document.getElementById('sim-warning-alert').scrollIntoView({ behavior: 'smooth', block: 'center' });
+              showToast(data.error, 'error');
+              return;
+            }
           }
+
+          if (!resp.ok) {
+            throw new Error(data.error || `Erro HTTP ${resp.status}`);
+          }
+
+          showToast(qID ? 'Questão atualizada com sucesso!' : 'Nova questão injetada no quiz ENADE!', 'success');
           document.getElementById('question-dialog').close();
           loadQuestionsBank();
         } catch (err) {

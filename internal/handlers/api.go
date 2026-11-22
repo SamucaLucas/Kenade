@@ -314,11 +314,6 @@ func (s *Server) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodPost:
-		if user.Role != models.RoleAdmin {
-			writeError(w, http.StatusForbidden, "Apenas administradores podem injetar questões")
-			return
-		}
-
 		var req struct {
 			Category      string `json:"category"`
 			Statement     string `json:"statement"`
@@ -329,6 +324,7 @@ func (s *Server) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 			CorrectOption string `json:"correct_option"`
 			Explanation   string `json:"explanation"`
 			TimeLimitSec  int    `json:"time_limit_sec"`
+			ForceCreate   bool   `json:"force_create"` // true quando o admin validou que a pergunta parecida segue lógica distinta
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "JSON inválido")
@@ -341,11 +337,40 @@ func (s *Server) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Verificação anti-duplicação (mesmo com 3+ admins salvando ao mesmo tempo!)
+		exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(s.DB, q.Statement, q.OptionA, q.OptionB, q.OptionC, q.OptionD, 0)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Erro ao verificar similaridade da questão")
+			return
+		}
+		// 1. Perguntas IDÊNTICAS nunca se cadastram (bloqueio estrito)
+		if exactMatch != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":       fmt.Sprintf("Bloqueado: Esta pergunta é idêntica à Questão #%d já cadastrada no banco e não pode ser duplicada.", exactMatch.Question.ID),
+				"code":        "exact_duplicate",
+				"exact_match": exactMatch,
+			})
+			return
+		}
+		// 2. Perguntas MUITO PARECIDAS exigem validação explícita do Admin confirmando que são questões distintas
+		if len(similarMatches) > 0 && !req.ForceCreate {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":           "Encontramos pergunta(s) muito parecida(s) no banco. Compare abaixo e confirme se são realmente questões com lógicas distintas.",
+				"code":            "similar_warning",
+				"similar_matches": similarMatches,
+			})
+			return
+		}
+
 		if err := s.DB.Create(q).Error; err != nil {
 			writeError(w, http.StatusInternalServerError, "Erro ao salvar questão")
 			return
 		}
 		s.DB.Preload("CreatedBy").First(q, q.ID)
+
+		// Notifica em tempo real todos os outros admins que estão com a tela de questões aberta!
+		s.Hub.Broadcast("__questions_admin__", "question_created", map[string]any{"question": q})
+
 		writeJSON(w, http.StatusCreated, map[string]any{"question": q})
 
 	default:
@@ -389,6 +414,7 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 			CorrectOption string `json:"correct_option"`
 			Explanation   string `json:"explanation"`
 			TimeLimitSec  int    `json:"time_limit_sec"`
+			ForceCreate   bool   `json:"force_create"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "JSON inválido")
@@ -401,8 +427,31 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(s.DB, validated.Statement, validated.OptionA, validated.OptionB, validated.OptionC, validated.OptionD, existing.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Erro ao verificar similaridade")
+			return
+		}
+		if exactMatch != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":       fmt.Sprintf("Bloqueado: Esta pergunta ficaria idêntica à Questão #%d já cadastrada.", exactMatch.Question.ID),
+				"code":        "exact_duplicate",
+				"exact_match": exactMatch,
+			})
+			return
+		}
+		if len(similarMatches) > 0 && !req.ForceCreate {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":           "Esta alteração deixa a pergunta muito parecida com outra já existente. Valide abaixo se são questões distintas.",
+				"code":            "similar_warning",
+				"similar_matches": similarMatches,
+			})
+			return
+		}
+
 		existing.Category = validated.Category
 		existing.Statement = validated.Statement
+		existing.StatementHash = validated.StatementHash
 		existing.OptionA = validated.OptionA
 		existing.OptionB = validated.OptionB
 		existing.OptionC = validated.OptionC
@@ -416,6 +465,7 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.DB.Preload("CreatedBy").First(&existing, existing.ID)
+		s.Hub.Broadcast("__questions_admin__", "question_updated", map[string]any{"question": existing})
 		writeJSON(w, http.StatusOK, map[string]any{"question": existing})
 
 	case http.MethodDelete:
@@ -429,6 +479,7 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "Erro ao excluir questão")
 			return
 		}
+		s.Hub.Broadcast("__questions_admin__", "question_deleted", map[string]any{"id": qID})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 
 	default:
@@ -463,6 +514,7 @@ func validateAndBuildQuestion(category, statement, optA, optB, optC, optD, corre
 	return &models.Question{
 		Category:      category,
 		Statement:     statement,
+		StatementHash: quiz.ComputeStatementHash(statement),
 		OptionA:       optA,
 		OptionB:       optB,
 		OptionC:       optC,
@@ -472,6 +524,71 @@ func validateAndBuildQuestion(category, statement, optA, optB, optC, optD, corre
 		TimeLimitSec:  timeLimit,
 		CreatedByID:   creatorID,
 	}, nil
+}
+
+// HandleCheckQuestionSimilarity verifica de forma assíncrona enquanto o Admin digita se a pergunta
+// já existe (idêntica) ou se há perguntas muito parecidas sendo/já cadastradas pelos outros admins.
+func (s *Server) HandleCheckQuestionSimilarity(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Método não permitido")
+		return
+	}
+	claims, err := auth.ExtractClaimsFromRequest(r)
+	if err != nil || claims.Role != models.RoleAdmin {
+		writeError(w, http.StatusForbidden, "Apenas administradores")
+		return
+	}
+
+	var req struct {
+		ExcludeID uint   `json:"exclude_id"`
+		Statement string `json:"statement"`
+		OptionA   string `json:"option_a"`
+		OptionB   string `json:"option_b"`
+		OptionC   string `json:"option_c"`
+		OptionD   string `json:"option_d"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(
+		s.DB,
+		req.Statement,
+		req.OptionA,
+		req.OptionB,
+		req.OptionC,
+		req.OptionD,
+		req.ExcludeID,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar similaridade")
+		return
+	}
+
+	status := "ok"
+	if exactMatch != nil {
+		status = "exact_duplicate"
+	} else if len(similarMatches) > 0 {
+		status = "similar_warning"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":          status,
+		"exact_match":     exactMatch,
+		"similar_matches": similarMatches,
+	})
+}
+
+// HandleQuestionsWS mantém conexão WebSocket entre os 3+ admins na tela do Banco de Questões
+// para atualizar a lista e revalidar duplicidades em tempo real quando alguém injeta uma questão.
+func (s *Server) HandleQuestionsWS(w http.ResponseWriter, r *http.Request) {
+	user, err := s.currentUser(r)
+	if err != nil || user.Role != models.RoleAdmin {
+		http.Error(w, "Acesso restrito a administradores", http.StatusForbidden)
+		return
+	}
+	ws.ServeWS(s.Hub, w, r, "__questions_admin__", user.ID, "admin")
 }
 
 // ============================================================================

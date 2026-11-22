@@ -142,9 +142,11 @@ func main() {
 	mux.HandleFunc("/api/users", srv.HandleUsers)
 	mux.HandleFunc("/api/admin/users/role", srv.HandlePromoteUser)
 
-	// Rotas Colaborativas de Questões (Admins)
+	// Rotas Colaborativas de Questões (Admins) + Verificação Assíncrona Anti-Duplicação
+	mux.HandleFunc("/api/questions/check", srv.HandleCheckQuestionSimilarity)
 	mux.HandleFunc("/api/questions", srv.HandleQuestions)
 	mux.HandleFunc("/api/questions/", srv.HandleQuestionByID)
+	mux.HandleFunc("/ws/questions", srv.HandleQuestionsWS)
 
 	// Rotas do Modo Estudo Solo
 	mux.HandleFunc("/api/solo/next", srv.HandleSoloNext)
