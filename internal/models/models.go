@@ -79,8 +79,9 @@ type ArenaTeam struct {
 	CurrentQuestionID  *uint             `gorm:"index" json:"current_question_id"`
 	CurrentQuestion    *Question         `gorm:"foreignKey:CurrentQuestionID" json:"current_question,omitempty"`
 	RoundNumber        int               `gorm:"not null;default:0" json:"round_number"`
-	RoundState         string            `gorm:"size:20;not null;default:'lobby'" json:"round_state"` // lobby, question, revealed
+	RoundState         string            `gorm:"size:20;not null;default:'lobby'" json:"round_state"` // lobby, question, revealed, leaderboard
 	RoundStartedAt     *time.Time        `json:"round_started_at"`
+	NoTimeLimit        bool              `gorm:"not null;default:false" json:"no_time_limit"` // Se true, mantém o tempo de leitura mas sem cronômetro limite para responder
 	LastCycleRestarted bool              `gorm:"not null;default:false" json:"last_cycle_restarted"`
 	Members            []ArenaTeamMember `gorm:"foreignKey:TeamID;constraint:OnDelete:CASCADE" json:"members,omitempty"`
 	CreatedAt          time.Time         `json:"created_at"`

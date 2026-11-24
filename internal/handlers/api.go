@@ -284,11 +284,17 @@ func (s *Server) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		category := strings.TrimSpace(r.URL.Query().Get("category"))
+		creatorParam := strings.TrimSpace(r.URL.Query().Get("created_by"))
 		search := strings.TrimSpace(r.URL.Query().Get("q"))
 
 		query := s.DB.Preload("CreatedBy").Order("category ASC, id DESC")
 		if category == models.CategoryGeneral || category == models.CategorySpecific {
 			query = query.Where("category = ?", category)
+		}
+		if creatorParam == "me" {
+			query = query.Where("created_by_id = ?", user.ID)
+		} else if creatorID, err := strconv.ParseUint(creatorParam, 10, 64); err == nil && creatorID > 0 {
+			query = query.Where("created_by_id = ?", creatorID)
 		}
 		if search != "" {
 			like := "%" + search + "%"
@@ -991,8 +997,9 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Name      string `json:"name"`
-			MemberIDs []uint `json:"member_ids"`
+			Name        string `json:"name"`
+			MemberIDs   []uint `json:"member_ids"`
+			NoTimeLimit bool   `json:"no_time_limit"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Dados inválidos")
@@ -1006,10 +1013,11 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 
 		pin := s.generateUniquePIN()
 		team := models.ArenaTeam{
-			PIN:        pin,
-			Name:       req.Name,
-			HostID:     user.ID,
-			RoundState: models.RoundStateLobby,
+			PIN:         pin,
+			Name:        req.Name,
+			HostID:      user.ID,
+			RoundState:  models.RoundStateLobby,
+			NoTimeLimit: req.NoTimeLimit,
 		}
 
 		err := s.DB.Transaction(func(tx *gorm.DB) error {
@@ -1186,12 +1194,43 @@ func (s *Server) HandleArenaTeamRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Soma o tempo de leitura configurado na questão + o tempo de responder da questão
+		// Se NoTimeLimit estiver ativo na sala, NÃO agenda timer automático de encerramento (só encerra quando todos responderem ou o Host pular/revelar!)
 		readingSec := nextRes.Question.ReadingTimeSec
 		if readingSec <= 0 {
 			readingSec = models.DefaultReadingPhaseSeconds
 		}
-		totalDuration := readingSec + nextRes.Question.TimeLimitSec
-		s.scheduleRoundTimer(team.PIN, team.RoundNumber, totalDuration)
+		if team.NoTimeLimit {
+			s.cancelRoundTimer(team.PIN)
+		} else {
+			totalDuration := readingSec + nextRes.Question.TimeLimitSec
+			s.scheduleRoundTimer(team.PIN, team.RoundNumber, totalDuration)
+		}
+		s.broadcastArenaState(pin)
+		state, _ := s.buildArenaTeamState(pin, user.ID)
+		writeJSON(w, http.StatusOK, state)
+
+	case "settings":
+		// Permite ao Host ativar/desativar o modo "Sem Limite de Tempo para Responder" nas configurações da sala
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "Método não permitido")
+			return
+		}
+		if team.HostID != user.ID {
+			writeError(w, http.StatusForbidden, "Apenas o criador (Host) da sala pode alterar as configurações de tempo.")
+			return
+		}
+		var req struct {
+			NoTimeLimit bool `json:"no_time_limit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "Dados inválidos")
+			return
+		}
+		team.NoTimeLimit = req.NoTimeLimit
+		_ = s.DB.Model(&models.ArenaTeam{}).Where("id = ?", team.ID).Update("no_time_limit", req.NoTimeLimit).Error
+		if req.NoTimeLimit {
+			s.cancelRoundTimer(team.PIN)
+		}
 		s.broadcastArenaState(pin)
 		state, _ := s.buildArenaTeamState(pin, user.ID)
 		writeJSON(w, http.StatusOK, state)
@@ -1256,17 +1295,18 @@ func (s *Server) HandleArenaTeamRoutes(w http.ResponseWriter, r *http.Request) {
 		isCorrect := req.SelectedOption == team.CurrentQuestion.CorrectOption
 		points := 0
 		if isCorrect {
-			ratio := 1.0 - (float64(elapsedMs) / float64(limitMs))
-			if ratio < 0 {
-				ratio = 0
-			}
-			if ratio > 1 {
-				ratio = 1
-			}
-			// Pontuação equilibrada baseada na velocidade:
-			// 10 pts base + até 40 pts de bônus de velocidade (máx 50 pts) + até 15 pts de sequência (streak)
 			basePoints := 10
-			speedBonus := int(40.0*ratio + 0.5)
+			speedBonus := 40
+			if !team.NoTimeLimit {
+				ratio := 1.0 - (float64(elapsedMs) / float64(limitMs))
+				if ratio < 0 {
+					ratio = 0
+				}
+				if ratio > 1 {
+					ratio = 1
+				}
+				speedBonus = int(40.0*ratio + 0.5)
+			}
 			streakBonus := member.CurrentStreak * 5
 			if streakBonus > 15 {
 				streakBonus = 15
@@ -1571,10 +1611,14 @@ func (s *Server) buildArenaTeamState(pin string, viewerUserID uint) (map[string]
 				remainingSec = q.TimeLimitSec
 			} else {
 				readingRemainingSec = 0
-				answerElapsed := elapsed - readingPhaseTotal
-				remainingSec = q.TimeLimitSec - answerElapsed
-				if remainingSec < 0 {
+				if team.NoTimeLimit {
 					remainingSec = 0
+				} else {
+					answerElapsed := elapsed - readingPhaseTotal
+					remainingSec = q.TimeLimitSec - answerElapsed
+					if remainingSec < 0 {
+						remainingSec = 0
+					}
 				}
 			}
 		}
@@ -1620,6 +1664,7 @@ func (s *Server) buildArenaTeamState(pin string, viewerUserID uint) (map[string]
 			"cycle_count":           team.CycleCount,
 			"round_number":          team.RoundNumber,
 			"round_state":           team.RoundState,
+			"no_time_limit":         team.NoTimeLimit,
 			"last_cycle_restarted":  team.LastCycleRestarted,
 			"reading_phase_total":   readingPhaseTotal,
 			"reading_remaining_sec": readingRemainingSec,

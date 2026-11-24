@@ -494,9 +494,10 @@
           return;
         }
 
+        // Se o jogador já clicou em uma alternativa -> Esconde a pergunta e mostra a tela de Carregando / Esperando os outros!
         if (hasAnswered) {
           waitingStage.classList.remove('hidden');
-          waitingTimerPill.textContent = `${answerRem}s restantes`;
+          waitingTimerPill.textContent = team.no_time_limit ? '♾️ Sem limite de tempo' : `${answerRem}s restantes`;
           return;
         }
 
@@ -507,7 +508,7 @@
           readingFill.style.width = `${pct}%`;
         } else {
           questionStage.classList.remove('hidden');
-          timerPill.textContent = `${answerRem}s`;
+          timerPill.textContent = team.no_time_limit ? '♾️ Sem limite' : `${answerRem}s`;
         }
       };
 
@@ -516,9 +517,9 @@
         timerInterval = setInterval(() => {
           if (readingRem > 0) {
             readingRem--;
-          } else if (answerRem > 0) {
+          } else if (!team.no_time_limit && answerRem > 0) {
             answerRem--;
-          } else {
+          } else if (!team.no_time_limit && answerRem <= 0) {
             clearInterval(timerInterval);
           }
           tick();

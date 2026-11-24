@@ -43,6 +43,9 @@
         <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-amber); max-width: 56px; line-height: 1.15;">🔍 Ampliar QR</span>
       </div>
 
+      <button type="button" class="btn btn-outline hidden" id="monitor-toggle-timer-btn" style="background: rgba(255,255,255,0.12); color: #fff; padding: 0.5rem 0.9rem;" title="Configuração do Host: ativar ou remover contador de tempo durante as respostas">
+        ⏱️ Com Tempo de Resposta
+      </button>
       <button type="button" class="btn btn-outline hidden" id="monitor-manage-members-btn" style="background: rgba(255,255,255,0.12); color: #fff; padding: 0.5rem 0.9rem;">
         👥 Membros (@)
       </button>
@@ -386,6 +389,18 @@
       document.getElementById('monitor-qr-img').src =
         `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(joinUrl)}`;
 
+      const timerToggleBtn = document.getElementById('monitor-toggle-timer-btn');
+      timerToggleBtn.classList.toggle('hidden', !isHost);
+      if (team.no_time_limit) {
+        timerToggleBtn.textContent = '♾️ Resposta: Sem Limite de Tempo';
+        timerToggleBtn.style.borderColor = 'var(--color-amber)';
+        timerToggleBtn.style.color = 'var(--color-amber)';
+      } else {
+        timerToggleBtn.textContent = '⏱️ Resposta: Com Cronômetro';
+        timerToggleBtn.style.borderColor = '';
+        timerToggleBtn.style.color = '#fff';
+      }
+
       document.getElementById('monitor-manage-members-btn').classList.toggle('hidden', !isHost);
       document.getElementById('host-lobby-controls').classList.toggle('hidden', !isHost);
       document.getElementById('non-host-lobby-msg').classList.toggle('hidden', isHost);
@@ -573,12 +588,17 @@
         } else {
           readingBanner.classList.add('hidden');
           optionsGrid.classList.remove('hidden');
-          circle.textContent = `${answerRem}s`;
-          circle.className = 'timer-badge';
-          if (answerRem <= 10) {
-            circle.classList.add('critical-time');
-          } else if (answerRem <= 20) {
-            circle.classList.add('low-time');
+          if (team.no_time_limit) {
+            circle.textContent = '♾️';
+            circle.className = 'timer-badge';
+          } else {
+            circle.textContent = `${answerRem}s`;
+            circle.className = 'timer-badge';
+            if (answerRem <= 10) {
+              circle.classList.add('critical-time');
+            } else if (answerRem <= 20) {
+              circle.classList.add('low-time');
+            }
           }
         }
       };
@@ -588,9 +608,9 @@
         timerInterval = setInterval(() => {
           if (readingRem > 0) {
             readingRem--;
-          } else if (answerRem > 0) {
+          } else if (!team.no_time_limit && answerRem > 0) {
             answerRem--;
-          } else {
+          } else if (!team.no_time_limit && answerRem <= 0) {
             clearInterval(timerInterval);
           }
           tick();
@@ -733,6 +753,27 @@
           arenaState = updated;
           renderMonitor();
           showToast('Progresso da equipe zerado!', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      document.getElementById('monitor-toggle-timer-btn').addEventListener('click', async () => {
+        if (!arenaState || !arenaState.team) return;
+        const nextVal = !arenaState.team.no_time_limit;
+        try {
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/settings`, {
+            method: 'POST',
+            body: JSON.stringify({ no_time_limit: nextVal }),
+          });
+          arenaState = updated;
+          renderMonitor();
+          showToast(
+            nextVal
+              ? '♾️ Cronômetro de resposta removido! (Mantém o tempo de leitura)'
+              : '⏱️ Cronômetro de resposta ativado!',
+            'success'
+          );
         } catch (err) {
           showToast(err.message, 'error');
         }

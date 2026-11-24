@@ -136,10 +136,14 @@
       </div>
 
       <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.15rem;">
-        <select id="filter-category-select" class="form-select" style="max-width: 260px;" aria-label="Filtrar por tipo de questão">
+        <select id="filter-category-select" class="form-select" style="max-width: 245px;" aria-label="Filtrar por tipo de questão">
           <option value="">Todas (1º Gerais + 2º Específicas)</option>
           <option value="general">Apenas 1ª Etapa: Gerais</option>
           <option value="specific">Apenas 2ª Etapa: Específicas</option>
+        </select>
+        <select id="filter-creator-select" class="form-select" style="max-width: 255px;" aria-label="Filtrar por quem cadastrou a pergunta">
+          <option value="">👤 Todos os Autores (Admins)</option>
+          <option value="me">⭐ Apenas Minhas Perguntas</option>
         </select>
         <input
           type="search"
@@ -592,6 +596,23 @@
         const container = document.getElementById('current-admins-list');
         container.innerHTML = '';
 
+        // Popula também o filtro por autor ("Quem cadastrou a pergunta")
+        const creatorSelect = document.getElementById('filter-creator-select');
+        const currentFilterVal = creatorSelect.value;
+        creatorSelect.innerHTML = `
+          <option value="">👤 Todos os Autores (Admins)</option>
+          <option value="me">⭐ Apenas Minhas Perguntas (@${escapeHTML(currentUser.username)})</option>
+        `;
+        for (const a of admins) {
+          if (currentUser && a.id !== currentUser.id) {
+            const opt = document.createElement('option');
+            opt.value = String(a.id);
+            opt.textContent = `🛡️ @${a.username} (${a.name})`;
+            creatorSelect.appendChild(opt);
+          }
+        }
+        creatorSelect.value = currentFilterVal;
+
         for (const a of admins) {
           const isMe = currentUser && a.id === currentUser.id;
           const chip = document.createElement('span');
@@ -629,9 +650,11 @@
     async function loadQuestionsBank() {
       try {
         const cat = document.getElementById('filter-category-select').value;
+        const creator = document.getElementById('filter-creator-select').value;
         const q = document.getElementById('filter-search-input').value.trim();
         const params = new URLSearchParams();
         if (cat) params.set('category', cat);
+        if (creator) params.set('created_by', creator);
         if (q) params.set('q', q);
 
         const data = await apiFetch(`/api/questions?${params.toString()}`);
@@ -808,6 +831,7 @@
       );
 
       document.getElementById('filter-category-select').addEventListener('change', loadQuestionsBank);
+      document.getElementById('filter-creator-select').addEventListener('change', loadQuestionsBank);
       document.getElementById('filter-search-input').addEventListener('input', loadQuestionsBank);
 
       document.getElementById('question-form').addEventListener('submit', async (e) => {
