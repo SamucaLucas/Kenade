@@ -1,6 +1,140 @@
 // ============================================================================
-// KENADE — Utilitários Compartilhados, Tema Escuro Padrão, Header e Combobox @
+// KENADE — Utilitários Compartilhados, PWA (Android & iOS), Tema Escuro, Header e Combobox @
 // ============================================================================
+
+let deferredInstallPrompt = null;
+
+function isRunningStandalonePWA() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function isIOSDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function ensurePWAInstallDialog() {
+  let dlg = document.getElementById('pwa-install-dialog');
+  if (dlg) return dlg;
+
+  dlg = document.createElement('dialog');
+  dlg.id = 'pwa-install-dialog';
+  dlg.setAttribute('aria-labelledby', 'pwa-install-title');
+  dlg.setAttribute('closedby', 'any');
+  dlg.style.maxWidth = '480px';
+  dlg.innerHTML = `
+    <div class="dialog-header">
+      <div style="display: flex; align-items: center; gap: 0.6rem;">
+        <img src="/favicon.svg" alt="Kenade" width="32" height="32" style="border-radius: 8px;" />
+        <h2 id="pwa-install-title" style="margin: 0; font-size: 1.15rem;">📲 Instalar App Kenade</h2>
+      </div>
+      <button type="button" class="nav-btn" id="close-pwa-dialog-btn" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="text-slate" style="margin-top: 0; font-size: 0.92rem;">
+        Instale o <strong>Kenade</strong> na tela inicial do seu celular para abrir em tela cheia igual a um aplicativo nativo:
+      </p>
+
+      <div class="stat-box" style="margin-bottom: 0.85rem; border-left: 4px solid var(--color-blue);">
+        <div style="font-weight: 900; font-size: 0.98rem; margin-bottom: 0.35rem;">🍎 No iPhone / iPad (Safari):</div>
+        <ol style="margin: 0; padding-left: 1.2rem; font-size: 0.88rem; line-height: 1.6;" class="text-slate">
+          <li>Toque no botão <strong>Compartilhar</strong> (ícone de quadrado com seta para cima <strong>⬆️</strong> na barra do Safari).</li>
+          <li>Role a lista e toque em <strong>"Adicionar à Tela de Início" (➕)</strong>.</li>
+          <li>Toque em <strong>"Adicionar"</strong> no canto superior direito.</li>
+        </ol>
+      </div>
+
+      <div class="stat-box" style="border-left: 4px solid var(--color-emerald);">
+        <div style="font-weight: 900; font-size: 0.98rem; margin-bottom: 0.35rem;">🤖 No Android (Chrome / Samsung / Edge):</div>
+        <ol style="margin: 0; padding-left: 1.2rem; font-size: 0.88rem; line-height: 1.6;" class="text-slate">
+          <li>Toque no menu de três pontos <strong>(⋮)</strong> do navegador no canto superior direito.</li>
+          <li>Toque em <strong>"Instalar aplicativo"</strong> ou <strong>"Adicionar à tela inicial"</strong>.</li>
+          <li>Confirme em <strong>"Instalar"</strong>.</li>
+        </ol>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn btn-primary" id="ok-pwa-dialog-btn">Entendi</button>
+    </div>
+  `;
+  document.body.appendChild(dlg);
+
+  dlg.querySelector('#close-pwa-dialog-btn').addEventListener('click', () => dlg.close());
+  dlg.querySelector('#ok-pwa-dialog-btn').addEventListener('click', () => dlg.close());
+  return dlg;
+}
+
+async function triggerPWAInstall() {
+  if (deferredInstallPrompt) {
+    try {
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice && choice.outcome === 'accepted') {
+        deferredInstallPrompt = null;
+        updatePWAInstallButtonsVisibility();
+        showToast('Aplicativo Kenade instalado com sucesso!', 'success');
+      }
+      return;
+    } catch {}
+  }
+  const dlg = ensurePWAInstallDialog();
+  dlg.showModal();
+}
+
+function updatePWAInstallButtonsVisibility() {
+  const isStandalone = isRunningStandalonePWA();
+  document.querySelectorAll('.pwa-install-btn').forEach((btn) => {
+    btn.classList.toggle('hidden', isStandalone);
+  });
+}
+
+function initPWASupport() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    updatePWAInstallButtonsVisibility();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    updatePWAInstallButtonsVisibility();
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Injeta botão "📲 Instalar App" nas barras de navegação se não estiver instalado
+    const navLinks = document.querySelector('.app-header .nav-links');
+    if (navLinks && !navLinks.querySelector('.pwa-install-btn')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nav-btn pwa-install-btn';
+      btn.style.background = 'rgba(5, 150, 105, 0.35)';
+      btn.style.borderColor = 'var(--color-emerald)';
+      btn.textContent = '📲 Instalar App';
+      btn.addEventListener('click', triggerPWAInstall);
+      navLinks.appendChild(btn);
+    }
+
+    document.querySelectorAll('.pwa-install-btn').forEach((btn) => {
+      if (!btn.dataset.pwaBound) {
+        btn.dataset.pwaBound = '1';
+        btn.addEventListener('click', triggerPWAInstall);
+      }
+    });
+
+    updatePWAInstallButtonsVisibility();
+  });
+}
+
+initPWASupport();
 
 function getActiveColorScheme() {
   const meta = document.querySelector('meta[name="color-scheme"]');
@@ -262,6 +396,7 @@ function applyUserToHeader(user, activeNavId) {
             <li><a class="drawer-menu-link ${activeNavId === 'solo' ? 'active' : ''}" href="/solo">📱 Estudo Solo (Celular)</a></li>
             <li><a class="drawer-menu-link ${activeNavId === 'ranking' ? 'active' : ''}" href="/ranking">🏆 Rankings</a></li>
             ${isAdmin ? `<li><a class="drawer-menu-link ${activeNavId === 'questions' ? 'active' : ''}" href="/questions">⚙️ Banco de Questões</a></li>` : ''}
+            <li><button type="button" class="drawer-menu-link pwa-install-btn" style="border-color: var(--color-emerald);">📲 Instalar App no Celular</button></li>
             <li><button type="button" class="drawer-menu-link theme-toggle-action">☀️ Modo Claro</button></li>
             <li><button type="button" class="drawer-menu-link" id="drawer-logout-btn" style="color: var(--color-crimson);">🚪 Sair da Conta</button></li>
           </ul>
@@ -270,6 +405,16 @@ function applyUserToHeader(user, activeNavId) {
     `;
     document.body.appendChild(drawer);
     updateThemeButtonLabel();
+
+    const pwaDrawerBtn = drawer.querySelector('.pwa-install-btn');
+    if (pwaDrawerBtn) {
+      pwaDrawerBtn.dataset.pwaBound = '1';
+      pwaDrawerBtn.addEventListener('click', () => {
+        drawer.close();
+        triggerPWAInstall();
+      });
+    }
+    updatePWAInstallButtonsVisibility();
 
     drawer.querySelector('.theme-toggle-action').addEventListener('click', toggleColorScheme);
     drawer.querySelector('#drawer-logout-btn').addEventListener('click', async () => {

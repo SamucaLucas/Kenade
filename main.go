@@ -4,6 +4,7 @@ import (
 	"Kenade/internal/auth"
 	"Kenade/internal/handlers"
 	"Kenade/internal/models"
+	"Kenade/internal/pwa"
 	"Kenade/internal/ws"
 	"bufio"
 	"fmt"
@@ -95,6 +96,7 @@ func serveProtectedPage(filePath string) http.HandlerFunc {
 
 func main() {
 	loadDotEnv(".env")
+	pwa.EnsureIcons()
 
 	dsn := getDatabaseDSN()
 	if dsn == "" {

@@ -1,0 +1,57 @@
+{
+  "id": "/",
+  "name": "Kenade — Plataforma Colaborativa de Estudos ENADE",
+  "short_name": "Kenade",
+  "description": "Estude em equipe no estilo Kahoot projetado no monitor ou revise sozinho pelo celular em um grande Quiz Único colaborativo para o ENADE.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0F0D26",
+  "theme_color": "#1E1B4B",
+  "lang": "pt-BR",
+  "categories": ["education", "games", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Modo Estudo Solo",
+      "short_name": "Estudo Solo",
+      "description": "Estudar sozinho pelo celular",
+      "url": "/solo",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Salas Arena (Equipes)",
+      "short_name": "Salas Arena",
+      "description": "Entrar ou criar sala de equipe",
+      "url": "/arena",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Rankings Globais",
+      "short_name": "Rankings",
+      "description": "Ver classificação de jogadores e equipes",
+      "url": "/ranking",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

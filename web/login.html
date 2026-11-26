@@ -12,6 +12,13 @@
   </script>
   <title>Entrar — Kenade (Quiz ENADE Colaborativo)</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#1E1B4B" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Kenade" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -23,7 +30,10 @@
         <span>KENADE</span>
         <span class="brand-badge">ENADE Quiz</span>
       </a>
-      <button type="button" class="nav-btn" id="theme-toggle-btn">☀️ Modo Claro</button>
+      <div style="display: flex; gap: 0.45rem; align-items: center;">
+        <button type="button" class="nav-btn pwa-install-btn" style="background: rgba(5, 150, 105, 0.35); border-color: var(--color-emerald);">📲 Instalar App</button>
+        <button type="button" class="nav-btn" id="theme-toggle-btn">☀️ Modo Claro</button>
+      </div>
     </div>
   </header>
 
