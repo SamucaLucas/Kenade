@@ -141,10 +141,15 @@
         <div class="monitor-statement" id="monitor-statement-text"></div>
       </div>
 
-      <!-- MEIO: Fase de Leitura Inicial (5s) -->
-      <div id="monitor-reading-banner" class="kahoot-splash-box hidden" style="max-width: 760px; width: 100%; margin: auto; padding: 1.35rem 1.75rem;">
-        <div style="font-size: 1.4rem; font-weight: 900;" id="monitor-reading-title">
-          🚀 COMEÇOU! Leia a pergunta com atenção...
+      <!-- MEIO: Fase de Leitura Inicial (Com botão para Pular o Tempo de Leitura) -->
+      <div id="monitor-reading-banner" class="kahoot-splash-box hidden" style="max-width: 780px; width: 100%; margin: auto; padding: 1.35rem 1.75rem;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;">
+          <div style="font-size: 1.35rem; font-weight: 900; text-align: left;" id="monitor-reading-title">
+            🚀 COMEÇOU! Leia a pergunta com atenção...
+          </div>
+          <button type="button" class="btn btn-amber" id="monitor-skip-reading-btn" style="padding: 0.55rem 1.1rem; font-size: 0.92rem; white-space: nowrap;">
+            ⏭️ Pular Tempo de Leitura
+          </button>
         </div>
         <div class="reading-bar-track">
           <div class="reading-bar-fill" id="monitor-reading-bar" style="width: 100%;"></div>
@@ -716,6 +721,16 @@
       document.getElementById('monitor-start-round-btn').addEventListener('click', goToNextQuestion);
       document.getElementById('monitor-go-leaderboard-btn').addEventListener('click', goToLeaderboard);
       document.getElementById('monitor-next-question-btn').addEventListener('click', goToNextQuestion);
+
+      document.getElementById('monitor-skip-reading-btn').addEventListener('click', async () => {
+        try {
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/skip-reading`, { method: 'POST' });
+          arenaState = updated;
+          renderMonitor();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
 
       document.getElementById('monitor-reveal-now-btn').addEventListener('click', async () => {
         try {

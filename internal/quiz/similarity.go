@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// SimilarMatch representa uma questão já existente no banco que é idêntica ou muito parecida.
+// SimilarMatch representa uma questão já existente no banco que é idêntica ou muito parecida no ENUNCIADO.
 type SimilarMatch struct {
 	Question          models.Question `json:"question"`
 	Similarity        float64         `json:"similarity"`         // 0.0 a 1.0
@@ -20,6 +20,7 @@ type SimilarMatch struct {
 	MatchReason       string          `json:"match_reason"`
 }
 
+// Stopwords do português + termos genéricos de comando de prova do ENADE para não acusar falso positivo
 var ptStopwords = map[string]bool{
 	"a": true, "ao": true, "aos": true, "aquela": true, "aquelas": true, "aquele": true, "aqueles": true,
 	"aquilo": true, "as": true, "ate": true, "com": true, "como": true, "da": true, "das": true, "de": true,
@@ -32,9 +33,13 @@ var ptStopwords = map[string]bool{
 	"quando": true, "que": true, "quem": true, "se": true, "sem": true, "ser": true, "seu": true,
 	"seus": true, "so": true, "sobre": true, "sua": true, "suas": true, "tambem": true, "um": true,
 	"uma": true, "umas": true, "uns": true,
+	// Termos padrão de cabeçalho/comando de questões ENADE
+	"considerando": true, "contexto": true, "avalie": true, "afirmacoes": true, "afirmacao": true,
+	"assercoes": true, "assercao": true, "seguir": true, "correto": true, "afirma": true,
+	"assinale": true, "alternativa": true, "correta": true, "respeito": true, "acerca": true,
+	"apenas": true, "texto": true, "apresentado": true, "analise": true, "itens": true,
 }
 
-// removeAccents converte caracteres acentuados do português para sua base ASCII.
 func removeAccents(r rune) rune {
 	switch unicode.ToLower(r) {
 	case 'á', 'à', 'ã', 'â', 'ä':
@@ -75,7 +80,7 @@ func NormalizeText(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// ComputeStatementHash gera o hash SHA-256 canônico do enunciado normalizado.
+// ComputeStatementHash gera o hash SHA-256 canônico apenas do enunciado normalizado.
 func ComputeStatementHash(statement string) string {
 	norm := NormalizeText(statement)
 	if norm == "" {
@@ -114,7 +119,6 @@ func extractTrigrams(normText string) map[string]int {
 	return trigrams
 }
 
-// diceTrigramSimilarity calcula o coeficiente de Dice entre os trigramas de dois textos (0.0 a 1.0).
 func diceTrigramSimilarity(a, b map[string]int) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
@@ -141,7 +145,6 @@ func diceTrigramSimilarity(a, b map[string]int) float64 {
 	return (2.0 * float64(intersection)) / float64(totalA+totalB)
 }
 
-// tokenSimilarity combina Jaccard e Cobertura (Containment) dos termos significativos (0.0 a 1.0).
 func tokenSimilarity(a, b map[string]bool) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
@@ -164,13 +167,12 @@ func tokenSimilarity(a, b map[string]bool) float64 {
 	}
 	containment := float64(intersection) / float64(minLen)
 
-	// Média ponderada entre Jaccard (65%) e Cobertura (35%) para detectar textos base iguais com final diferente
 	return (jaccard * 0.65) + (containment * 0.35)
 }
 
-// CheckQuestionSimilarity compara um candidato (enunciado + alternativas) contra todas as questões do banco.
-// Retorna exactMatch != nil se já existir questão idêntica (>= 95% ou mesmo hash), e similarMatches para questões muito parecidas.
-func CheckQuestionSimilarity(db *gorm.DB, statement, optA, optB, optC, optD string, excludeID uint) (*SimilarMatch, []SimilarMatch, error) {
+// CheckQuestionSimilarity compara APENAS O ENUNCIADO (statement) contra todas as questões do banco,
+// ignorando completamente as alternativas (pois muitas questões de ENADE possuem alternativas iguais como "I e IV, apenas").
+func CheckQuestionSimilarity(db *gorm.DB, statement string, excludeID uint) (*SimilarMatch, []SimilarMatch, error) {
 	normCandidateStmt := NormalizeText(statement)
 	if len(normCandidateStmt) < 6 {
 		return nil, nil, nil
@@ -179,8 +181,6 @@ func CheckQuestionSimilarity(db *gorm.DB, statement, optA, optB, optC, optD stri
 	candidateHash := ComputeStatementHash(statement)
 	candidateTokens := extractSignificantTokens(normCandidateStmt)
 	candidateTrigrams := extractTrigrams(normCandidateStmt)
-	candidateOptsNorm := NormalizeText(optA + " " + optB + " " + optC + " " + optD)
-	candidateOptsTokens := extractSignificantTokens(candidateOptsNorm)
 
 	var existing []models.Question
 	query := db.Preload("CreatedBy")
@@ -200,7 +200,7 @@ func CheckQuestionSimilarity(db *gorm.DB, statement, optA, optB, optC, optD stri
 			continue
 		}
 
-		// 1. Verifica igualdade exata por texto normalizado ou hash
+		// 1. Verifica igualdade exata do enunciado normalizado ou hash
 		if (q.StatementHash != "" && q.StatementHash == candidateHash) || normExistingStmt == normCandidateStmt {
 			match := SimilarMatch{
 				Question:          q,
@@ -219,39 +219,20 @@ func CheckQuestionSimilarity(db *gorm.DB, statement, optA, optB, optC, optD stri
 		trigramSim := diceTrigramSimilarity(candidateTrigrams, existingTrigrams)
 		wordSim := tokenSimilarity(candidateTokens, existingTokens)
 
-		// Similaridade combinada do enunciado
-		stmtScore := (trigramSim * 0.55) + (wordSim * 0.45)
-
-		// Similaridade das alternativas (se as alternativas já foram preenchidas)
-		optScore := 0.0
-		if len(candidateOptsTokens) > 0 {
-			existingOptsNorm := NormalizeText(q.OptionA + " " + q.OptionB + " " + q.OptionC + " " + q.OptionD)
-			existingOptsTokens := extractSignificantTokens(existingOptsNorm)
-			optScore = tokenSimilarity(candidateOptsTokens, existingOptsTokens)
+		// Similaridade baseada exclusivamente no enunciado
+		stmtScore := (trigramSim * 0.50) + (wordSim * 0.50)
+		if stmtScore > 1.0 {
+			stmtScore = 1.0
 		}
 
-		finalScore := stmtScore
-		if optScore > 0 {
-			// Se as alternativas também são muito parecidas, aumenta a confiança da similaridade
-			if optScore > stmtScore {
-				finalScore = (stmtScore * 0.65) + (optScore * 0.35)
-			} else {
-				finalScore = (stmtScore * 0.85) + (optScore * 0.15)
-			}
-		}
+		pct := int(stmtScore*100.0 + 0.5)
 
-		if finalScore > 1.0 {
-			finalScore = 1.0
-		}
-
-		pct := int(finalScore*100.0 + 0.5)
-
-		// >= 95% de similaridade textual no enunciado é tratado como duplicata idêntica (apenas diferença mínima de digitação/OCR)
+		// >= 95% de similaridade no enunciado é tratado como duplicata idêntica
 		if stmtScore >= 0.95 {
 			match := SimilarMatch{
 				Question:          q,
 				Similarity:        stmtScore,
-				SimilarityPercent: int(stmtScore*100.0 + 0.5),
+				SimilarityPercent: pct,
 				IsExact:           true,
 				MatchReason:       "Enunciado praticamente idêntico (95%+ de igualdade textual)",
 			}
@@ -259,21 +240,14 @@ func CheckQuestionSimilarity(db *gorm.DB, statement, optA, optB, optC, optD stri
 			break
 		}
 
-		// Entre 44% e 94%: Pergunta muito parecida (exibe para o admin comparar e validar se a lógica é distinta)
-		if finalScore >= 0.44 || (stmtScore >= 0.38 && optScore >= 0.60) {
-			reason := "Enunciado e termos-chave muito semelhantes"
-			if optScore >= 0.60 && stmtScore >= 0.38 {
-				reason = "Enunciado e alternativas muito semelhantes"
-			}
-			if pct < 44 {
-				pct = int(((stmtScore + optScore) / 2.0) * 100.0)
-			}
+		// Entre 48% e 94% de semelhança no enunciado (com boa sobreposição de termos significativos do enunciado)
+		if stmtScore >= 0.48 && wordSim >= 0.35 {
 			similarMatches = append(similarMatches, SimilarMatch{
 				Question:          q,
-				Similarity:        finalScore,
+				Similarity:        stmtScore,
 				SimilarityPercent: pct,
 				IsExact:           false,
-				MatchReason:       reason,
+				MatchReason:       "Enunciado com texto e conceitos muito parecidos",
 			})
 		}
 	}

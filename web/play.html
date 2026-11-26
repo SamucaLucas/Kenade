@@ -170,10 +170,16 @@
         <div class="question-statement-box" id="reading-statement-text" style="text-align: left; background: rgba(15, 13, 38, 0.55); color: #fff; border-left-color: var(--color-amber); margin: 0.65rem 0;"></div>
 
         <div style="font-weight: 800; font-size: 0.92rem; margin-top: 0.8rem;" id="reading-countdown-label">
-          Liberando as alternativas em 5s...
+          Liberando as alternativas em 15s...
         </div>
         <div class="reading-bar-track">
           <div class="reading-bar-fill" id="reading-progress-fill" style="width: 100%;"></div>
+        </div>
+
+        <div style="margin-top: 1.15rem;">
+          <button type="button" class="btn btn-amber" id="play-skip-reading-btn" style="width: 100%; font-size: 0.98rem;">
+            ⏭️ Já li! Responder Agora
+          </button>
         </div>
       </div>
     </section>
@@ -276,6 +282,7 @@
     let ws = null;
     let timerInterval = null;
     let lastVibratedRound = -1;
+    let skippedReadingForRound = -1; // Permite ao jogador pular o timer de leitura no seu celular para responder logo
 
     async function joinAndLoadRoom() {
       try {
@@ -501,7 +508,8 @@
           return;
         }
 
-        if (readingRem > 0) {
+        const isSkippedByPlayer = skippedReadingForRound === team.round_number;
+        if (readingRem > 0 && !isSkippedByPlayer) {
           readingStage.classList.remove('hidden');
           readingLabel.textContent = `Liberando as alternativas em ${readingRem}s...`;
           const pct = Math.max(0, Math.min(100, (readingRem / readingTotal) * 100));
@@ -580,6 +588,13 @@
           showToast(err.message, 'error');
         }
       };
+
+      document.getElementById('play-skip-reading-btn').addEventListener('click', () => {
+        if (arenaState && arenaState.team) {
+          skippedReadingForRound = arenaState.team.round_number;
+          renderMobileStage();
+        }
+      });
 
       document.getElementById('play-host-start-btn').addEventListener('click', triggerHostNext);
       document.getElementById('play-host-leaderboard-btn').addEventListener('click', triggerHostLeaderboard);

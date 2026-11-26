@@ -533,10 +533,6 @@
             body: JSON.stringify({
               exclude_id: excludeID,
               statement: stmt,
-              option_a: document.getElementById('q-opt-a').value,
-              option_b: document.getElementById('q-opt-b').value,
-              option_c: document.getElementById('q-opt-c').value,
-              option_d: document.getElementById('q-opt-d').value,
             }),
           });
           if (seq === simCheckSeq) {
@@ -812,12 +808,10 @@
         });
       });
 
-      // Listeners de Verificação Assíncrona de Similaridade em Tempo Real enquanto o Admin digita
-      ['q-statement', 'q-opt-a', 'q-opt-b', 'q-opt-c', 'q-opt-d'].forEach((id) => {
-        document.getElementById(id).addEventListener('input', () => {
-          document.getElementById('sim-confirm-distinct-cb').checked = false;
-          triggerAsyncSimilarityCheck();
-        });
+      // Listener de Verificação Assíncrona de Similaridade considerando APENAS o Enunciado (#q-statement)
+      document.getElementById('q-statement').addEventListener('input', () => {
+        document.getElementById('sim-confirm-distinct-cb').checked = false;
+        triggerAsyncSimilarityCheck();
       });
 
       document.getElementById('sim-confirm-distinct-cb').addEventListener('change', updateSaveButtonState);

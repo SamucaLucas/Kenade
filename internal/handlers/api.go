@@ -344,8 +344,8 @@ func (s *Server) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Verificação anti-duplicação (mesmo com 3+ admins salvando ao mesmo tempo!)
-		exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(s.DB, q.Statement, q.OptionA, q.OptionB, q.OptionC, q.OptionD, 0)
+		// Verificação anti-duplicação considerando APENAS o enunciado
+		exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(s.DB, q.Statement, 0)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Erro ao verificar similaridade da questão")
 			return
@@ -435,7 +435,7 @@ func (s *Server) HandleQuestionByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(s.DB, validated.Statement, validated.OptionA, validated.OptionB, validated.OptionC, validated.OptionD, existing.ID)
+		exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(s.DB, validated.Statement, existing.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Erro ao verificar similaridade")
 			return
@@ -556,10 +556,6 @@ func (s *Server) HandleCheckQuestionSimilarity(w http.ResponseWriter, r *http.Re
 	var req struct {
 		ExcludeID uint   `json:"exclude_id"`
 		Statement string `json:"statement"`
-		OptionA   string `json:"option_a"`
-		OptionB   string `json:"option_b"`
-		OptionC   string `json:"option_c"`
-		OptionD   string `json:"option_d"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "JSON inválido")
@@ -569,10 +565,6 @@ func (s *Server) HandleCheckQuestionSimilarity(w http.ResponseWriter, r *http.Re
 	exactMatch, similarMatches, err := quiz.CheckQuestionSimilarity(
 		s.DB,
 		req.Statement,
-		req.OptionA,
-		req.OptionB,
-		req.OptionC,
-		req.OptionD,
 		req.ExcludeID,
 	)
 	if err != nil {
@@ -1206,6 +1198,36 @@ func (s *Server) HandleArenaTeamRoutes(w http.ResponseWriter, r *http.Request) {
 			s.scheduleRoundTimer(team.PIN, team.RoundNumber, totalDuration)
 		}
 		s.broadcastArenaState(pin)
+		state, _ := s.buildArenaTeamState(pin, user.ID)
+		writeJSON(w, http.StatusOK, state)
+
+	case "skip-reading":
+		// Permite pular o timer de leitura da pergunta e liberar as alternativas imediatamente
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "Método não permitido")
+			return
+		}
+		if err := s.DB.Preload("CurrentQuestion").Where("pin = ?", pin).First(&team).Error; err != nil {
+			writeError(w, http.StatusNotFound, "Sala não encontrada")
+			return
+		}
+		if team.RoundState == models.RoundStateQuestion && team.CurrentQuestion != nil {
+			readingSec := team.CurrentQuestion.ReadingTimeSec
+			if readingSec <= 0 {
+				readingSec = models.DefaultReadingPhaseSeconds
+			}
+			// Ajusta RoundStartedAt para que a fase de leitura seja dada como concluída agora e o tempo de resposta comece cheio
+			shiftedStart := time.Now().Add(-time.Duration(readingSec) * time.Second)
+			team.RoundStartedAt = &shiftedStart
+			_ = s.DB.Model(&models.ArenaTeam{}).Where("id = ?", team.ID).Update("round_started_at", shiftedStart).Error
+
+			if team.NoTimeLimit {
+				s.cancelRoundTimer(team.PIN)
+			} else {
+				s.scheduleRoundTimer(team.PIN, team.RoundNumber, team.CurrentQuestion.TimeLimitSec)
+			}
+			s.broadcastArenaState(pin)
+		}
 		state, _ := s.buildArenaTeamState(pin, user.ID)
 		writeJSON(w, http.StatusOK, state)
 
