@@ -50,6 +50,9 @@
         <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-amber); max-width: 56px; line-height: 1.15;">🔍 Ampliar QR</span>
       </div>
 
+      <button type="button" class="btn btn-outline hidden" id="monitor-toggle-public-btn" style="background: rgba(255,255,255,0.12); color: #fff; padding: 0.5rem 0.9rem;" title="Configuração do Host: alternar entre Sala Pública (aberta a todos) e Sala Privada">
+        🔒 Sala Privada
+      </button>
       <button type="button" class="btn btn-outline hidden" id="monitor-toggle-timer-btn" style="background: rgba(255,255,255,0.12); color: #fff; padding: 0.5rem 0.9rem;" title="Configuração do Host: ativar ou remover contador de tempo durante as respostas">
         ⏱️ Com Tempo de Resposta
       </button>
@@ -400,6 +403,18 @@
       const joinUrl = `${window.location.origin}/play?pin=${encodeURIComponent(team.pin)}`;
       document.getElementById('monitor-qr-img').src =
         `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(joinUrl)}`;
+
+      const publicToggleBtn = document.getElementById('monitor-toggle-public-btn');
+      publicToggleBtn.classList.toggle('hidden', !isHost);
+      if (team.is_public) {
+        publicToggleBtn.textContent = '🌐 Sala Pública (Aberta)';
+        publicToggleBtn.style.borderColor = 'var(--color-emerald)';
+        publicToggleBtn.style.color = '#6EE7B7';
+      } else {
+        publicToggleBtn.textContent = '🔒 Sala Privada';
+        publicToggleBtn.style.borderColor = '';
+        publicToggleBtn.style.color = '#fff';
+      }
 
       const timerToggleBtn = document.getElementById('monitor-toggle-timer-btn');
       timerToggleBtn.classList.toggle('hidden', !isHost);
@@ -775,6 +790,27 @@
           arenaState = updated;
           renderMonitor();
           showToast('Progresso da equipe zerado!', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      document.getElementById('monitor-toggle-public-btn').addEventListener('click', async () => {
+        if (!arenaState || !arenaState.team) return;
+        const nextPublic = !arenaState.team.is_public;
+        try {
+          const updated = await apiFetch(`/api/arena/teams/${encodeURIComponent(pin)}/settings`, {
+            method: 'POST',
+            body: JSON.stringify({ is_public: nextPublic }),
+          });
+          arenaState = updated;
+          renderMonitor();
+          showToast(
+            nextPublic
+              ? '🌐 Sala alterada para PÚBLICA! Qualquer jogador pode entrar.'
+              : '🔒 Sala alterada para PRIVADA! Apenas membros da equipe podem entrar.',
+            'success'
+          );
         } catch (err) {
           showToast(err.message, 'error');
         }

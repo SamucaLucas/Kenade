@@ -87,13 +87,13 @@
       </div>
     </div>
 
-    <!-- Lista de Salas / Equipes que o usuário faz parte -->
+    <!-- Lista de Salas / Equipes Públicas e Privadas -->
     <div style="margin-top: 1.75rem;">
       <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem;">
         <div>
-          <h2 class="card-title" style="margin: 0;">Suas Salas / Equipes Arena</h2>
+          <h2 class="card-title" style="margin: 0;">Salas Arena (Públicas &amp; Suas Equipes)</h2>
           <p class="text-slate" style="margin: 0; font-size: 0.88rem;">
-            Apenas as equipes em que seu @usuário está incluído aparecem abaixo. O Monitor abre em uma nova aba limpa com opção de Tela Cheia.
+            Salas <strong>🌐 Públicas</strong> são abertas para qualquer jogador entrar sem limite. Salas <strong>🔒 Privadas</strong> só aparecem para os membros convidados.
           </p>
         </div>
       </div>
@@ -150,6 +150,14 @@
             required
             placeholder="ex: Tropa do ENADE"
           />
+        </div>
+
+        <div class="form-group">
+          <span class="form-label">Visibilidade &amp; Acesso da Sala</span>
+          <label class="check-box-option" id="team-is-public-label">
+            <input type="checkbox" id="team-is-public-cb" />
+            <span>🌐 <strong>Sala Pública (Aberta a Todos):</strong> Qualquer jogador pode ver a sala, entrar e participar sem limite de integrantes</span>
+          </label>
         </div>
 
         <div class="form-group">
@@ -403,6 +411,11 @@
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
               <div>
                 <span class="role-tag admin" style="font-size: 0.82rem;">PIN: ${escapeHTML(t.pin)}</span>
+                ${
+                  t.is_public
+                    ? '<span class="role-tag" style="margin-left: 0.35rem; background: var(--color-emerald); color: #fff;">🌐 PÚBLICA</span>'
+                    : '<span class="role-tag player" style="margin-left: 0.35rem;">🔒 PRIVADA</span>'
+                }
                 ${t.is_host ? '<span class="role-tag player" style="margin-left: 0.35rem;">CRIADOR</span>' : ''}
                 ${t.no_time_limit ? '<span class="role-tag player" style="margin-left: 0.35rem;">♾️ SEM LIMITE DE TEMPO</span>' : ''}
                 <h3 class="card-title" style="margin-top: 0.45rem;">${escapeHTML(t.name)}</h3>
@@ -544,11 +557,17 @@
       const openCreateModal = () => {
         selectedNewTeamMembers.clear();
         document.getElementById('team-name-input').value = '';
+        document.getElementById('team-is-public-cb').checked = false;
+        document.getElementById('team-is-public-label').classList.remove('is-checked');
         document.getElementById('team-no-time-limit-cb').checked = false;
         document.getElementById('team-no-time-limit-label').classList.remove('is-checked');
         renderSelectedNewTeamChips();
         document.getElementById('team-dialog').showModal();
       };
+
+      document.getElementById('team-is-public-cb').addEventListener('change', (e) => {
+        document.getElementById('team-is-public-label').classList.toggle('is-checked', e.target.checked);
+      });
 
       document.getElementById('team-no-time-limit-cb').addEventListener('change', (e) => {
         document.getElementById('team-no-time-limit-label').classList.toggle('is-checked', e.target.checked);
@@ -572,12 +591,18 @@
       document.getElementById('team-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = document.getElementById('team-name-input').value.trim();
+        const isPublic = document.getElementById('team-is-public-cb').checked;
         const noTimeLimit = document.getElementById('team-no-time-limit-cb').checked;
         const memberIds = Array.from(selectedNewTeamMembers.keys());
         try {
           const created = await apiFetch('/api/arena/teams', {
             method: 'POST',
-            body: JSON.stringify({ name, member_ids: memberIds, no_time_limit: noTimeLimit }),
+            body: JSON.stringify({
+              name,
+              member_ids: memberIds,
+              no_time_limit: noTimeLimit,
+              is_public: isPublic,
+            }),
           });
           document.getElementById('team-dialog').close();
           showToast(`Equipe "${created.team.name}" criada com PIN ${created.team.pin}!`, 'success');

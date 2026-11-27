@@ -59,7 +59,7 @@ func (s *Server) currentUser(r *http.Request) (*models.User, error) {
 	return &user, nil
 }
 
-// isUserInTeam verifica se o usuário faz parte da equipe (ou é o criador/host da sala).
+// isUserInTeam verifica se o usuário faz parte da equipe (ou se a sala é Pública, ingressando-o automaticamente sem limite).
 func (s *Server) isUserInTeam(team *models.ArenaTeam, userID uint) bool {
 	if team.HostID == userID {
 		return true
@@ -68,7 +68,19 @@ func (s *Server) isUserInTeam(team *models.ArenaTeam, userID uint) bool {
 	s.DB.Model(&models.ArenaTeamMember{}).
 		Where("team_id = ? AND user_id = ?", team.ID, userID).
 		Count(&count)
-	return count > 0
+	if count > 0 {
+		return true
+	}
+	// Se a sala for PÚBLICA, qualquer usuário autenticado pode entrar e é adicionado automaticamente aos participantes da sala!
+	if team.IsPublic && userID > 0 {
+		member := models.ArenaTeamMember{
+			TeamID: team.ID,
+			UserID: userID,
+		}
+		_ = s.DB.Where("team_id = ? AND user_id = ?", team.ID, userID).FirstOrCreate(&member).Error
+		return true
+	}
+	return false
 }
 
 // ============================================================================
@@ -906,15 +918,15 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// Regra validada: A equipe SÓ aparece para quem está na equipe!
+		// Exibe todas as Salas Públicas + as Salas Privadas em que o usuário faz parte!
 		memberSubQuery := s.DB.Model(&models.ArenaTeamMember{}).
 			Select("team_id").
 			Where("user_id = ?", user.ID)
 
 		var teams []models.ArenaTeam
 		s.DB.Preload("Host").Preload("Members.User").
-			Where("host_id = ? OR id IN (?)", user.ID, memberSubQuery).
-			Order("updated_at DESC").
+			Where("is_public = ? OR host_id = ? OR id IN (?)", true, user.ID, memberSubQuery).
+			Order("is_public DESC, updated_at DESC").
 			Find(&teams)
 
 		// Busca contagens globais de questões e estatísticas de todas as equipes em lote (sem N+1 queries!)
@@ -992,6 +1004,7 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 			Name        string `json:"name"`
 			MemberIDs   []uint `json:"member_ids"`
 			NoTimeLimit bool   `json:"no_time_limit"`
+			IsPublic    bool   `json:"is_public"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Dados inválidos")
@@ -1010,6 +1023,7 @@ func (s *Server) HandleArenaTeams(w http.ResponseWriter, r *http.Request) {
 			HostID:      user.ID,
 			RoundState:  models.RoundStateLobby,
 			NoTimeLimit: req.NoTimeLimit,
+			IsPublic:    req.IsPublic,
 		}
 
 		err := s.DB.Transaction(func(tx *gorm.DB) error {
@@ -1232,26 +1246,37 @@ func (s *Server) HandleArenaTeamRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, state)
 
 	case "settings":
-		// Permite ao Host ativar/desativar o modo "Sem Limite de Tempo para Responder" nas configurações da sala
+		// Permite ao Host ativar/desativar o modo "Sem Limite de Tempo" e alternar entre "Sala Pública" e "Sala Privada"
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "Método não permitido")
 			return
 		}
 		if team.HostID != user.ID {
-			writeError(w, http.StatusForbidden, "Apenas o criador (Host) da sala pode alterar as configurações de tempo.")
+			writeError(w, http.StatusForbidden, "Apenas o criador (Host) da sala pode alterar as configurações da sala.")
 			return
 		}
 		var req struct {
-			NoTimeLimit bool `json:"no_time_limit"`
+			NoTimeLimit *bool `json:"no_time_limit"`
+			IsPublic    *bool `json:"is_public"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Dados inválidos")
 			return
 		}
-		team.NoTimeLimit = req.NoTimeLimit
-		_ = s.DB.Model(&models.ArenaTeam{}).Where("id = ?", team.ID).Update("no_time_limit", req.NoTimeLimit).Error
-		if req.NoTimeLimit {
-			s.cancelRoundTimer(team.PIN)
+		updates := map[string]any{}
+		if req.NoTimeLimit != nil {
+			team.NoTimeLimit = *req.NoTimeLimit
+			updates["no_time_limit"] = *req.NoTimeLimit
+			if *req.NoTimeLimit {
+				s.cancelRoundTimer(team.PIN)
+			}
+		}
+		if req.IsPublic != nil {
+			team.IsPublic = *req.IsPublic
+			updates["is_public"] = *req.IsPublic
+		}
+		if len(updates) > 0 {
+			_ = s.DB.Model(&models.ArenaTeam{}).Where("id = ?", team.ID).Updates(updates).Error
 		}
 		s.broadcastArenaState(pin)
 		state, _ := s.buildArenaTeamState(pin, user.ID)
@@ -1687,6 +1712,7 @@ func (s *Server) buildArenaTeamState(pin string, viewerUserID uint) (map[string]
 			"round_number":          team.RoundNumber,
 			"round_state":           team.RoundState,
 			"no_time_limit":         team.NoTimeLimit,
+			"is_public":             team.IsPublic,
 			"last_cycle_restarted":  team.LastCycleRestarted,
 			"reading_phase_total":   readingPhaseTotal,
 			"reading_remaining_sec": readingRemainingSec,
