@@ -162,11 +162,18 @@ func main() {
 	mux.HandleFunc("/api/arena/teams/", srv.HandleArenaTeamRoutes)
 	mux.HandleFunc("/ws/arena/", srv.HandleArenaWS)
 
-	// Healthcheck para o Render
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	// Rota pública ultra-leve para o UptimeRobot manter o Render acordado 24/7 sem bater no PostgreSQL
+	pingHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"status":"ok","message":"pong"}`))
+		}
+	}
+	mux.HandleFunc("/api/ping", pingHandler)
+	mux.HandleFunc("/ping", pingHandler)
+	mux.HandleFunc("/healthz", pingHandler)
 
 	// Páginas HTML separadas (sem flash de tela de login ao recarregar!)
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {

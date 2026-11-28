@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: go build -o bin/kenade .
     startCommand: ./bin/kenade
-    healthCheckPath: /healthz
+    healthCheckPath: /api/ping
     envVars:
       - key: DATABASE_URL
         sync: false
